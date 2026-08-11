@@ -1,0 +1,9 @@
+{
+  "name": "4box S Series",
+  "homeassistant": "2024.1.0",
+  "content_in_root": false,
+  "render_readme": true,
+  "iot_class": "local_push",
+  "zip_release": true,
+  "filename": "4box_series.zip"
+}

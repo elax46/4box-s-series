@@ -1,0 +1,32 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add a 4box S Series device",
+        "description": "Enter the MQTT device ID exactly as printed on the device / in its MQTT guide, e.g. `M048B-30AEA4A6D460`. Requires the MQTT integration to already be configured.",
+        "data": {
+          "device_id": "Device ID (<model>-<MAC>)",
+          "name": "Friendly name (optional)",
+          "channels": "Number of relay channels",
+          "has_energy": "Device has an energy meter",
+          "energy_poll_interval": "Energy poll interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "invalid_device_id": "Device ID looks invalid. It must not contain spaces or slashes."
+    },
+    "abort": {
+      "already_configured": "This device is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "energy_poll_interval": "Energy poll interval (seconds)"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,41 @@
+# Development environment for the s_series_mqtt custom integration.
+#
+# Usage (from the `dev/` directory):
+#   docker compose up
+#
+# Then open http://localhost:8123, finish the HA onboarding wizard,
+# add the built-in "MQTT" integration pointing at host `mosquitto`
+# port 1883 (no auth needed for local dev), and finally add
+# "4box / Finder P40S (MQTT)" from Settings -> Devices & Services -> Add
+# Integration.
+#
+# The custom_components folder is bind-mounted read-write so edits on
+# your machine are picked up after a Home Assistant restart
+# (Developer Tools -> YAML -> Restart, or `docker compose restart homeassistant`).
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: p40s_dev_mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    restart: unless-stopped
+
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: p40s_dev_homeassistant
+    depends_on:
+      - mosquitto
+    volumes:
+      - ha_config:/config
+      - ../custom_components:/config/custom_components:rw
+    ports:
+      - "8123:8123"
+    environment:
+      - TZ=Europe/Rome
+    restart: unless-stopped
+
+volumes:
+  ha_config:
