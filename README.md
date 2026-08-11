@@ -1,4 +1,4 @@
-HA Custom Integration: 4box S Series
+# HA Custom Integration: 4box S Series
 
 A native Home Assistant integration for **Finder / 4box "S Series"** MQTT
 devices — starting with the **P40 Smart (P40S)** socket, and built to grow
