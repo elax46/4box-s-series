@@ -13,6 +13,8 @@
       "relay": {
         "title": "Relay / socket options",
         "data": {
+          "device_id": "Device ID (format: model-MAC, e.g. M048B-30AEA4A6D460)",
+          "name": "Friendly name (optional)",
           "channels": "Number of relay channels",
           "has_energy": "Device has an energy meter",
           "energy_poll_interval": "Energy poll interval (seconds)"

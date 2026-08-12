@@ -1,0 +1,6 @@
+# .github/ISSUE_TEMPLATE/config.yml
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & Discussions
+    url: https://github.com/elax46/4box-s-series/discussions
+    about: Ask general questions or share ideas before opening an issue.
