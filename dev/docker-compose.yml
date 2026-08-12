@@ -6,17 +6,39 @@
 # Then open http://localhost:8123, finish the HA onboarding wizard,
 # add the built-in "MQTT" integration pointing at host `mosquitto`
 # port 1883 (no auth needed for local dev), and finally add
-# "4box / Finder P40S (MQTT)" from Settings -> Devices & Services -> Add
+# "4box S Series (MQTT)" from Settings -> Devices & Services -> Add
 # Integration.
 #
 # The custom_components folder is bind-mounted read-write so edits on
 # your machine are picked up after a Home Assistant restart
 # (Developer Tools -> YAML -> Restart, or `docker compose restart homeassistant`).
+#
+# --- Testing against a REAL device instead of the simulator -----------
+# The `mosquitto` broker below is published on the host's 1883 port on
+# ALL host network interfaces, not just localhost -- so a real device on
+# your Wi-Fi (not just the simulator script) can talk to it too, as long
+# as it's on the same LAN as the machine running docker compose:
+#
+#   1. Find your host machine's LAN IP (e.g. `ipconfig getifaddr en0` on
+#      macOS, `hostname -I` on Linux) -- NOT 127.0.0.1/localhost, since
+#      the physical device can't reach that.
+#   2. In the 4box app, open the device's advanced settings, enable MQTT,
+#      and set the broker to that LAN IP, port 1883. Anonymous
+#      connections are allowed by dev/mosquitto/mosquitto.conf, so the
+#      username/password fields can be any non-empty value (the app may
+#      require them to be filled even though the broker won't check
+#      them); pick any Client ID.
+#   3. Point Home Assistant's MQTT integration at `mosquitto` (or the
+#      same LAN IP) as usual, and add the device via the config flow
+#      using its real device ID (format `<model>-<MAC>`).
+#
+# This is strictly a development/testing setup: no auth, no TLS. Don't
+# reuse `dev/mosquitto/mosquitto.conf` for anything production-facing.
 
 services:
   mosquitto:
     image: eclipse-mosquitto:2
-    container_name: p40s_dev_mosquitto
+    container_name: s_series_dev_mosquitto
     ports:
       - "1883:1883"
     volumes:
@@ -25,7 +47,7 @@ services:
 
   homeassistant:
     image: ghcr.io/home-assistant/home-assistant:stable
-    container_name: p40s_dev_homeassistant
+    container_name: s_series_dev_homeassistant
     depends_on:
       - mosquitto
     volumes:

@@ -26,13 +26,14 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import (
     DOMAIN,
     MANUFACTURER,
+    TOPIC_MOTOR_STAT,
     TOPIC_RELAY_CURRENT,
     TOPIC_RELAY_POWER,
     TOPIC_TEMPERATURE,
     TOPIC_VOLTAGE,
 )
 from .coordinator import SSeriesEnergyCoordinator
-from .utils import model_from_device_id
+from .utils import model_from_device_id, parse_motor_stat
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,9 +41,20 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Set up sensor entities for one device."""
+    """Set up sensor entities for one device.
+
+    This platform is shared by two device families: relay devices (power,
+    current, voltage, temperature, energy) and motor devices (a single
+    instantaneous power sensor derived from the combined `/stat` message).
+    """
     entry_data = hass.data[DOMAIN][entry.entry_id]
     device_id: str = entry_data["device_id"]
+    device_type: str = entry_data["device_type"]
+
+    if device_type == "motor":
+        async_add_entities([SSeriesMotorPowerSensor(device_id)])
+        return
+
     channels: int = entry_data["channels"]
     coordinator: SSeriesEnergyCoordinator | None = entry_data.get("energy_coordinator")
 
@@ -181,3 +193,40 @@ class SSeriesEnergySensor(CoordinatorEntity[SSeriesEnergyCoordinator], SensorEnt
         if self.coordinator.data is None:
             return None
         return self.coordinator.data.get(self._channel)
+
+
+class SSeriesMotorPowerSensor(SensorEntity):
+    """Instantaneous motor power, parsed from the combined `/stat` message.
+
+    Motor devices publish a single concatenated status string on `/stat`
+    (see `utils.parse_motor_stat`); this entity subscribes to it and
+    extracts just the power field.
+    """
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, device_id: str) -> None:
+        self._device_id = device_id
+        self._attr_unique_id = f"{device_id}_motor_power"
+        self._attr_name = "Power"
+        self._topic = TOPIC_MOTOR_STAT.format(id=device_id)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_id)},
+            manufacturer=MANUFACTURER,
+            model=model_from_device_id(device_id),
+            name=device_id,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        @callback
+        def handler(msg) -> None:
+            stat = parse_motor_stat(msg.payload)
+            if stat.power_w is not None:
+                self._attr_native_value = stat.power_w
+                self.async_write_ha_state()
+
+        self.async_on_remove(await mqtt.async_subscribe(self.hass, self._topic, handler))

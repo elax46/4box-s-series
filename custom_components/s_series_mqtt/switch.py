@@ -24,9 +24,10 @@ async def async_setup_entry(
     entry_data = hass.data[DOMAIN][entry.entry_id]
     device_id: str = entry_data["device_id"]
     channels: int = entry_data["channels"]
+    initial_states: dict[int, bool] = entry_data.get("initial_relay_states", {})
 
     entities = [
-        SSeriesRelaySwitch(device_id, channels, channel)
+        SSeriesRelaySwitch(device_id, channels, channel, initial_states.get(channel))
         for channel in range(1, channels + 1)
     ]
     async_add_entities(entities)
@@ -38,16 +39,31 @@ class SSeriesRelaySwitch(SwitchEntity):
     _attr_should_poll = False
     _attr_has_entity_name = True
 
-    def __init__(self, device_id: str, total_channels: int, channel: int) -> None:
+    def __init__(
+        self,
+        device_id: str,
+        total_channels: int,
+        channel: int,
+        initial_state: bool | None = None,
+    ) -> None:
         self._device_id = device_id
         self._total_channels = total_channels
         self._channel = channel
 
         self._attr_unique_id = f"{device_id}_relay_{channel}"
         self._attr_name = "Socket" if total_channels == 1 else f"Channel {channel}"
-        # Unknown until the first /stat or /connect message arrives.
-        self._attr_is_on = False
-        self._attr_available = False
+
+        if initial_state is not None:
+            # We got a real answer from gpiostatus=GET at setup time, so
+            # trust it immediately rather than waiting for the device's
+            # next spontaneous /stat push (see __init__.py).
+            self._attr_is_on = initial_state
+            self._attr_available = True
+        else:
+            # Fell back to the old behavior: unknown/unavailable until the
+            # first /stat or /connect message arrives.
+            self._attr_is_on = False
+            self._attr_available = False
 
         self._cmnd_topic = TOPIC_CMND.format(id=device_id)
         self._state_topic = TOPIC_RELAY_STATE.format(id=device_id, channel=channel)

@@ -3,13 +3,37 @@
     "step": {
       "user": {
         "title": "Add a 4box S Series device",
-        "description": "Enter the MQTT device ID exactly as printed on the device / in its MQTT guide, e.g. `M048B-30AEA4A6D460`. Requires the MQTT integration to already be configured.",
+        "description": "Pick the device family and enter the MQTT device ID exactly as printed on the device / in its MQTT guide, e.g. `M048B-30AEA4A6D460`. Requires the MQTT integration to already be configured.",
         "data": {
-          "device_id": "Device ID (<model>-<MAC>)",
-          "name": "Friendly name (optional)",
+          "device_type": "Device family",
+          "device_id": "Device ID (format: model-MAC, e.g. M048B-30AEA4A6D460)",
+          "name": "Friendly name (optional)"
+        }
+      },
+      "relay": {
+        "title": "Relay / socket options",
+        "data": {
           "channels": "Number of relay channels",
           "has_energy": "Device has an energy meter",
           "energy_poll_interval": "Energy poll interval (seconds)"
+        }
+      },
+      "motor": {
+        "title": "Motorized shutter options",
+        "data": {
+          "has_tilt": "Device supports tilt (frangisole/tende)"
+        }
+      },
+      "push": {
+        "title": "Uniko Push options",
+        "data": {
+          "pulse_duration_ms": "Default pulse duration (ms)"
+        }
+      },
+      "thermostat": {
+        "title": "Thermostat options",
+        "data": {
+          "thermostat_poll_interval": "Poll interval (seconds)"
         }
       }
     },
@@ -24,7 +48,9 @@
     "step": {
       "init": {
         "data": {
-          "energy_poll_interval": "Energy poll interval (seconds)"
+          "energy_poll_interval": "Energy poll interval (seconds)",
+          "pulse_duration_ms": "Default pulse duration (ms)",
+          "thermostat_poll_interval": "Poll interval (seconds)"
         }
       }
     }

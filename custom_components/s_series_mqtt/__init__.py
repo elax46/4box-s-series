@@ -7,47 +7,99 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import (
+    CMD_GPIOSTATUS_GET,
     CONF_CHANNELS,
     CONF_DEVICE_ID,
+    CONF_DEVICE_TYPE,
     CONF_ENERGY_POLL_INTERVAL,
     CONF_HAS_ENERGY,
+    CONF_HAS_TILT,
+    CONF_PULSE_DURATION_MS,
+    CONF_THERMOSTAT_POLL_INTERVAL,
     DEFAULT_CHANNELS,
     DEFAULT_ENERGY_POLL_INTERVAL,
+    DEFAULT_PULSE_DURATION_MS,
+    DEFAULT_THERMOSTAT_POLL_INTERVAL,
+    DEVICE_TYPE_MOTOR,
+    DEVICE_TYPE_PUSH,
+    DEVICE_TYPE_RELAY,
+    DEVICE_TYPE_THERMOSTAT,
     DOMAIN,
 )
-from .coordinator import SSeriesEnergyCoordinator
+from .coordinator import (
+    RequestResponsePoller,
+    SSeriesEnergyCoordinator,
+    SSeriesThermostatCoordinator,
+)
+from .utils import parse_gpio_status
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SWITCH, Platform.SENSOR, Platform.BINARY_SENSOR]
+# Which Home Assistant platforms each device family forwards to.
+PLATFORMS_BY_DEVICE_TYPE: dict[str, list[Platform]] = {
+    DEVICE_TYPE_RELAY: [Platform.SWITCH, Platform.SENSOR, Platform.BINARY_SENSOR],
+    DEVICE_TYPE_MOTOR: [Platform.COVER, Platform.BUTTON, Platform.SENSOR],
+    DEVICE_TYPE_PUSH: [Platform.BUTTON, Platform.BINARY_SENSOR],
+    DEVICE_TYPE_THERMOSTAT: [Platform.CLIMATE],
+}
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up a P40S device from a config entry."""
+    """Set up one device from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
     options = {**entry.data, **entry.options}
     device_id: str = options[CONF_DEVICE_ID]
-    channels: int = options.get(CONF_CHANNELS, DEFAULT_CHANNELS)
-    has_energy: bool = options.get(CONF_HAS_ENERGY, True)
-    poll_interval: int = options.get(
-        CONF_ENERGY_POLL_INTERVAL, DEFAULT_ENERGY_POLL_INTERVAL
-    )
+    device_type: str = options.get(CONF_DEVICE_TYPE, DEVICE_TYPE_RELAY)
 
-    entry_data: dict = {"device_id": device_id, "channels": channels}
+    entry_data: dict = {"device_id": device_id, "device_type": device_type}
 
-    if has_energy:
-        coordinator = SSeriesEnergyCoordinator(hass, device_id, channels, poll_interval)
+    if device_type == DEVICE_TYPE_RELAY:
+        entry_data["channels"] = options.get(CONF_CHANNELS, DEFAULT_CHANNELS)
+
+        # Fetch the current relay state right now instead of waiting for
+        # the device's next spontaneous /stat push (which may not come
+        # for a while, since it appears not to publish that topic
+        # retained -- see const.py's CMD_GPIOSTATUS_GET docstring).
+        entry_data["initial_relay_states"] = await _async_fetch_initial_relay_states(
+            hass, device_id, entry_data["channels"]
+        )
+
+        if options.get(CONF_HAS_ENERGY, True):
+            poll_interval = options.get(
+                CONF_ENERGY_POLL_INTERVAL, DEFAULT_ENERGY_POLL_INTERVAL
+            )
+            coordinator = SSeriesEnergyCoordinator(
+                hass, device_id, entry_data["channels"], poll_interval
+            )
+            await coordinator.async_start()
+            await coordinator.async_config_entry_first_refresh()
+            entry_data["energy_coordinator"] = coordinator
+
+    elif device_type == DEVICE_TYPE_MOTOR:
+        entry_data["has_tilt"] = options.get(CONF_HAS_TILT, True)
+
+    elif device_type == DEVICE_TYPE_PUSH:
+        entry_data["pulse_duration_ms"] = options.get(
+            CONF_PULSE_DURATION_MS, DEFAULT_PULSE_DURATION_MS
+        )
+
+    elif device_type == DEVICE_TYPE_THERMOSTAT:
+        poll_interval = options.get(
+            CONF_THERMOSTAT_POLL_INTERVAL, DEFAULT_THERMOSTAT_POLL_INTERVAL
+        )
+        coordinator = SSeriesThermostatCoordinator(hass, device_id, poll_interval)
         await coordinator.async_start()
-        # Raises ConfigEntryNotReady automatically on failure.
         await coordinator.async_config_entry_first_refresh()
-        entry_data["energy_coordinator"] = coordinator
+        entry_data["thermostat_coordinator"] = coordinator
 
     hass.data[DOMAIN][entry.entry_id] = entry_data
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    platforms = PLATFORMS_BY_DEVICE_TYPE[device_type]
+    await hass.config_entries.async_forward_entry_setups(entry, platforms)
     entry.async_on_unload(entry.add_update_listener(_async_update_options))
     return True
 
@@ -59,12 +111,50 @@ async def _async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    options = {**entry.data, **entry.options}
+    device_type: str = options.get(CONF_DEVICE_TYPE, DEVICE_TYPE_RELAY)
+    platforms = PLATFORMS_BY_DEVICE_TYPE[device_type]
+
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, platforms)
     if unload_ok:
         entry_data = hass.data[DOMAIN].pop(entry.entry_id)
-        coordinator: SSeriesEnergyCoordinator | None = entry_data.get(
-            "energy_coordinator"
-        )
-        if coordinator is not None:
-            await coordinator.async_stop()
+        for key in ("energy_coordinator", "thermostat_coordinator"):
+            coordinator = entry_data.get(key)
+            if coordinator is not None:
+                await coordinator.async_stop()
     return unload_ok
+
+
+async def _async_fetch_initial_relay_states(
+    hass: HomeAssistant, device_id: str, channels: int
+) -> dict[int, bool]:
+    """One-shot `gpiostatus=GET` query so switches show the right state
+    immediately on first setup / HA restart / entry reload, instead of
+    only after the relay's next physical toggle.
+
+    Failures (device offline, unparsable response, timeout) are logged
+    and swallowed rather than blocking setup: the switch will simply fall
+    back to its old "unknown until first push" behavior for that device,
+    which is a graceful degradation, not a hard failure.
+    """
+    poller = RequestResponsePoller(hass, device_id)
+    await poller.async_start()
+    try:
+        response = await poller.async_request(CMD_GPIOSTATUS_GET)
+    except UpdateFailed as err:
+        _LOGGER.warning(
+            "Could not fetch initial relay state for %s (%s); switches will "
+            "show as off until the device's next state change",
+            device_id,
+            err,
+        )
+        return {}
+    finally:
+        await poller.async_stop()
+
+    states = parse_gpio_status(response, channels)
+    if not states:
+        _LOGGER.debug(
+            "Unrecognized gpiostatus=GET response for %s: %r", device_id, response
+        )
+    return states

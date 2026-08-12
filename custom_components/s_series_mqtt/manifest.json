@@ -1,13 +1,12 @@
 {
   "domain": "s_series_mqtt",
-  "name": "4box S Series",
+  "name": "4box S Series (MQTT)",
   "codeowners": ["@elax46"],
   "config_flow": true,
   "dependencies": ["mqtt"],
   "documentation": "https://github.com/elax46/4box-s-series",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/elax46/4box-s-series/issues",
-  "loggers": ["custom_components.4box_s_series"],
   "requirements": [],
-  "version": "0.1.0"
+  "version": "0.3.0"
 }
