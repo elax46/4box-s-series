@@ -5,7 +5,7 @@
         "title": "Aggiungi un dispositivo 4box Serie S",
         "description": "Inserisci l'ID dispositivo MQTT esattamente come stampato sul dispositivo o nella sua guida MQTT, ad es. `M048B-30AEA4A6D460`. Richiede che l'integrazione MQTT sia già configurata.",
         "data": {
-          "device_id": "ID dispositivo (<modello>-<MAC>)",
+          "device_id": "ID dispositivo (formato: model-MAC, e.g. M048B-30AEA4A6D460)",
           "name": "Nome personalizzato (opzionale)",
           "channels": "Numero di canali relè",
           "has_energy": "Il dispositivo ha un misuratore di energia",
