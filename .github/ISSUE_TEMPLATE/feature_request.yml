@@ -1,0 +1,43 @@
+# .github/ISSUE_TEMPLATE/feature_request.yml
+name: Feature request
+description: Suggest a new device family, entity, or capability.
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Suggestions for new device families (covers/shutters, Uniko Push, thermostats) are especially welcome — see the Roadmap section in the README for what's already planned.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What would you like to see added?
+      description: A clear description of the feature or entity you're requesting.
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: What are you trying to accomplish? This helps prioritize and design the feature correctly.
+    validations:
+      required: true
+
+  - type: textarea
+    id: mqtt-reference
+    attributes:
+      label: Relevant MQTT command(s), if known
+      description: |
+        If this relates to a command documented in the vendor's MQTT guide (e.g. `motor=MOVE&perc=50`, `thermostatMode=1`), paste the relevant payload(s)/topic(s) here.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+    validations:
+      required: false
