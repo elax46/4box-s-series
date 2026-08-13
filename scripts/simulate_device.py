@@ -109,7 +109,12 @@ class RelaySimulator(_BaseSimulator):
             self.energy_kwh += round(random.uniform(0, 0.01), 3)
             self.publish_info(f"{self.energy_kwh:.3f} (kWh)")
         elif key == "gpiostatus" and value == "GET":
-            self.publish_info("00000001" if self.relay_on else "00000000")
+            # Format confirmed on a real M048D, firmware MO.14.00.
+            relay_state = "ON" if self.relay_on else "OFF"
+            self.publish_info(
+                f"LED1_R:0;LED1_G:0;LED1_B:0;RELAY1:{relay_state};"
+                f"SW1_DC:PULL;SW1_AC:PULL;"
+            )
         elif key == "reboot" and value == "TRUE":
             self.publish_info("Rebooting....")
         else:
@@ -128,7 +133,14 @@ class RelaySimulator(_BaseSimulator):
         self.client.publish(
             f"{self.device_id}/stat/relay/1", "on" if self.relay_on else "off"
         )
-        self.publish_info("DONE")
+        # Real firmware (M048D, FW MO.14.00) replies with "<ON>"/"<OFF>"
+        # reflecting the resulting state here, not "DONE" as the vendor
+        # PDF guide documents -- even after TOGGLE. Matching that, since
+        # this integration doesn't currently parse this particular
+        # response anyway (it relies on the /stat push or the
+        # gpiostatus=GET fetch instead), but it's worth being accurate
+        # for anyone testing against the simulator.
+        self.publish_info(f"<{'ON' if self.relay_on else 'OFF'}>")
 
     def _current_power(self) -> float:
         return round(random.uniform(80.0, 120.0), 1) if self.relay_on else 0.0

@@ -132,3 +132,13 @@ def setpoint_payload(temperature: float) -> str:
 # real hardware since the vendor guide only documents the command name.
 CMD_GPIOSTATUS_GET = "gpiostatus=GET"
 MOTOR_CMD_STATUS = "motor=STATUS"
+
+# --- MQTT discovery (config flow) --------------------------------------
+# There's no vendor-documented HA-style MQTT discovery topic. Instead,
+# every device announces itself online via its own LWT birth message on
+# `<ID>/connect` (retained, payload "true"). The config flow does a
+# short-lived wildcard subscription to `+/connect` to passively collect
+# device IDs currently online, purely as a convenience for the picker --
+# manual entry always remains available as a fallback.
+TOPIC_CONNECT_WILDCARD = "+/connect"
+DISCOVERY_SCAN_SECONDS = 2

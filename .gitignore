@@ -1,2 +1,5 @@
 custom_components/.DS_Store
 /custom_components/s_series_mqtt/__pycache__
+/.venv-test/bin/__pycache__
+/.venv-test
+/tests/__pycache__

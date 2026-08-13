@@ -3,16 +3,26 @@
 Two-step flow: first pick the device family (relay / motor / push /
 thermostat) and enter the device ID, then a second, family-specific step
 collects the remaining options.
+
+The device ID field is backed by a short MQTT scan (see
+`_async_scan_for_devices`) that offers currently-online devices as
+selectable suggestions, with manual entry always available too --
+there's no vendor-documented discovery protocol to hook into, so this is
+best-effort convenience, not authoritative discovery.
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any
 
 import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.components import mqtt
 from homeassistant.core import callback
+from homeassistant.helpers import selector
 
 from .const import (
     CONF_CHANNELS,
@@ -33,8 +43,12 @@ from .const import (
     DEVICE_TYPE_RELAY,
     DEVICE_TYPE_THERMOSTAT,
     DEVICE_TYPES,
+    DISCOVERY_SCAN_SECONDS,
     DOMAIN,
+    TOPIC_CONNECT_WILDCARD,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class SSeriesMqttConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -44,12 +58,52 @@ class SSeriesMqttConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._base_data: dict[str, Any] = {}
+        self._discovered_device_ids: list[str] | None = None
+
+    async def _async_scan_for_devices(self) -> list[str]:
+        """Passively collect device IDs currently online via their LWT.
+
+        Subscribes to `+/connect` for a few seconds and records every
+        device ID whose birth message ("true") arrives during that
+        window, excluding devices already configured. Best-effort only:
+        a device that's offline, or one whose retained "true" message
+        doesn't get redelivered promptly, simply won't show up -- manual
+        entry always remains available regardless.
+        """
+        found: set[str] = set()
+
+        @callback
+        def _handle_connect(msg) -> None:
+            if msg.payload.strip().lower() == "true":
+                device_id = msg.topic.rsplit("/connect", 1)[0]
+                if device_id:
+                    found.add(device_id)
+
+        unsub = await mqtt.async_subscribe(
+            self.hass, TOPIC_CONNECT_WILDCARD, _handle_connect
+        )
+        try:
+            await asyncio.sleep(DISCOVERY_SCAN_SECONDS)
+        finally:
+            unsub()
+
+        already_configured = self._async_current_ids(include_ignore=False)
+        return sorted(d for d in found if d not in already_configured)
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Step 1: device family, device ID, friendly name."""
         errors: dict[str, str] = {}
+
+        # Only scan once per flow instance, on the very first display --
+        # not on every re-render after a validation error.
+        if self._discovered_device_ids is None:
+            try:
+                self._discovered_device_ids = await self._async_scan_for_devices()
+            except Exception:  # noqa: BLE001 - discovery is best-effort
+                _LOGGER.debug("MQTT device scan failed; falling back to manual entry")
+                self._discovered_device_ids = []
 
         if user_input is not None:
             device_id = user_input[CONF_DEVICE_ID].strip()
@@ -74,16 +128,36 @@ class SSeriesMqttConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }[user_input[CONF_DEVICE_TYPE]]
                 return await next_step()
 
+        if self._discovered_device_ids:
+            # Dropdown of devices seen online, but still freely editable
+            # (custom_value=True) in case the one you want isn't listed.
+            device_id_selector = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=self._discovered_device_ids,
+                    custom_value=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            )
+        else:
+            device_id_selector = str
+
         schema = vol.Schema(
             {
                 vol.Required(CONF_DEVICE_TYPE, default=DEVICE_TYPE_RELAY): vol.In(
                     DEVICE_TYPES
                 ),
-                vol.Required(CONF_DEVICE_ID): str,
+                vol.Required(CONF_DEVICE_ID): device_id_selector,
                 vol.Optional(CONF_NAME, default=""): str,
             }
         )
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id="user",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "discovered_count": str(len(self._discovered_device_ids or []))
+            },
+        )
 
     async def async_step_relay(
         self, user_input: dict[str, Any] | None = None

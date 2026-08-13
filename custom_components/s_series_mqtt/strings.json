@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Add a 4box S Series device",
-        "description": "Pick the device family and enter the MQTT device ID exactly as printed on the device / in its MQTT guide, e.g. `M048B-30AEA4A6D460`. Requires the MQTT integration to already be configured.",
+        "description": "Pick the device family. The Device ID field shows devices currently online on your MQTT broker ({discovered_count} found) as a dropdown you can pick from, or type/paste one manually in the format `model-MAC`, e.g. `M048B-30AEA4A6D460`. Requires the MQTT integration to already be configured.",
         "data": {
           "device_type": "Device family",
           "device_id": "Device ID (format: model-MAC, e.g. M048B-30AEA4A6D460)",
@@ -13,8 +13,6 @@
       "relay": {
         "title": "Relay / socket options",
         "data": {
-          "device_id": "Device ID (format: model-MAC, e.g. M048B-30AEA4A6D460)",
-          "name": "Friendly name (optional)",
           "channels": "Number of relay channels",
           "has_energy": "Device has an energy meter",
           "energy_poll_interval": "Energy poll interval (seconds)"
