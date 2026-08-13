@@ -120,13 +120,15 @@ def setpoint_payload(temperature: float) -> str:
 
 
 # --- initial-state fetch on setup/reload ------------------------------
-# The firmware appears not to publish its `/stat/...` topics with the
-# MQTT retain flag: a fresh subscriber (e.g. this integration right after
-# HA starts or the entry reloads) gets nothing until the device's state
-# actually changes next. `gpiostatus=GET` (documented in the guide's
-# Appendix A cheat sheet) and `motor=STATUS` (documented in the motor
-# section) are both request/response commands we use once at startup to
-# force an immediate read instead of waiting on a push that may not come
-# for a while.
+# Confirmed on a real M048D (firmware MO.14.00): `/stat/...` topics are
+# NOT published with the MQTT retain flag, so a fresh subscriber (e.g.
+# this integration right after HA starts or the entry reloads) gets
+# nothing until the device's state actually changes next.
+# `gpiostatus=GET` and `motor=STATUS` are request/response commands we
+# use once at startup to force an immediate read instead of waiting on a
+# push that may not come for a while. See utils.parse_gpio_status for the
+# confirmed response format of gpiostatus=GET (semicolon-separated
+# KEY:value pairs, e.g. "...;RELAY1:ON;..."), reverse-engineered from
+# real hardware since the vendor guide only documents the command name.
 CMD_GPIOSTATUS_GET = "gpiostatus=GET"
 MOTOR_CMD_STATUS = "motor=STATUS"

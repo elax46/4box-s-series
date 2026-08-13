@@ -16,7 +16,8 @@ your Wi-Fi and speak plain MQTT to a broker of your choice. This
 integration talks to them over that same broker via Home Assistant's
 built-in **MQTT integration**.
 
-Tested against a real P40S on firmware **MO.14.00**.
+Tested against a real P40S — which reports model **M048D** in its MQTT
+device ID — on firmware **MO.14.00**.
 
 ## Setting up the physical device
 
@@ -140,7 +141,7 @@ integration's **Configure** button without re-adding the device.
 
 ## Initial state on setup/reload
 
-Real-hardware testing (P40S, firmware MO.14.00) confirmed that the
+Real-hardware testing (P40S / M048D, firmware MO.14.00) confirmed that the
 device's `/stat/relay/1` (and the combined motor `/stat`) pushes are
 **not published with the MQTT retain flag**. That means a subscriber that
 starts *after* the device already reached its current state — which is
@@ -167,27 +168,44 @@ state once, right at setup:
   inherently transient (on only during a pulse) and less likely to be
   stale in a way that matters — tracked in the [Roadmap](#roadmap).
 
-### ⚠️ `gpiostatus=GET` bit layout is unverified
+### `gpiostatus=GET` response format (reverse-engineered)
 
 The vendor guide's Appendix A only lists the command name
-(`gpiostatus=GET` → *"Lettura GPIO"*) without documenting the exact
-format of its response. `utils.parse_gpio_status` currently assumes a
-binary string (e.g. `"00000001"`) where the least-significant (rightmost)
-bit is channel 1 and the next bit is channel 2 — the same convention as
-the motor family's `gpio_status` field, which the guide does show an
-example of (`00000011=>...`). **This has not yet been confirmed against
-a real `gpiostatus=GET` response.**
+(`gpiostatus=GET` → *"Lettura GPIO"*) without documenting its response
+format. **Confirmed on a real M048D, firmware MO.14.00**, it's a
+semicolon-separated list of `KEY:value` pairs:
 
-If you have hardware and can check, it would help a lot: run
-`mosquitto_sub -h <broker> -t '<device_id>/info' -v`, toggle the relay a
-couple of times via `mosquitto_pub ... -m 'gpiostatus=GET'`, and compare
-the raw payload against the relay's actual on/off state. If the mapping
-is different from what's assumed above, please open an issue with the
-raw payload you observed — `parse_gpio_status` is a single, isolated
-function, so fixing the bit layout doesn't touch anything else. If the
-response can't be parsed as a binary string at all, the integration logs
-a debug message and falls back to the old off/unavailable-until-first-push
-behavior for that device, rather than failing setup.
+```
+LED1_R:0;LED1_G:0;LED1_B:0;RELAY1:ON;SW1_DC:PULL;SW1_AC:PULL;
+```
+
+`utils.parse_gpio_status` extracts `RELAY<n>:ON`/`RELAY<n>:OFF` tokens
+from this and ignores the rest (LED indicator color, input pull state,
+etc. — not relevant to relay state, and not necessarily present on every
+model). This was verified for a single-channel device; the 2-channel
+case (M053B dual-light, expected as `RELAY1:...;RELAY2:...;` in the same
+list) is untested — if you have one and can confirm or correct it, please
+open an issue with the raw payload.
+
+Two other things worth knowing, discovered from the same real-device
+capture, in case you're debugging with `mosquitto_sub` yourself:
+
+- **`action=ON`/`action=OFF` replies on `/info` with `<ON>`/`<OFF>`**,
+  not `"DONE"` as the PDF guide documents. The integration doesn't parse
+  this particular response (it relies on the `/stat/relay/1` push or the
+  `gpiostatus=GET` fetch instead), so this didn't require a code change,
+  but it's a discrepancy worth knowing about if you're comparing raw MQTT
+  traffic against the guide.
+- The device also spontaneously publishes `/stat/led/1/{r,g,b}` and a
+  second combined `/stat` message in the same `KEY:value` format as
+  `gpiostatus=GET` (with a trailing `=>0`) — likely related to an
+  indicator LED. Neither is currently used by this integration; possible
+  future `light` platform, see [Roadmap](#roadmap).
+
+If `gpiostatus=GET`'s response can't be parsed at all (no `RELAY<n>`
+token found), the integration logs a debug message and falls back to the
+old off/unavailable-until-first-push behavior for that device, rather
+than failing setup.
 
 ## Entities created
 
@@ -375,6 +393,7 @@ pushed data). No external runtime dependencies beyond Home Assistant core
 and its bundled MQTT integration (`paho-mqtt` is a *dev-only* dependency
 of the simulator script, not of the integration itself).
 
+Contributions for any of the above are very welcome — open an issue or PR.
 
 ## Disclaimer
 

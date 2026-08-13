@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -83,32 +84,35 @@ def parse_motor_stat(payload: str) -> MotorStat:
 
 
 def parse_gpio_status(response: str, channels: int) -> dict[int, bool]:
-    """Best-effort parse of a `gpiostatus=GET` response into per-channel on/off.
+    """Parse a `gpiostatus=GET` response into per-channel on/off state.
 
-    The vendor guide's Appendix A only lists the command
-    (`gpiostatus=GET` -> "Lettura GPIO") without documenting the exact bit
-    layout of the response. This assumes a binary string (e.g.
-    "00000001") where the least-significant (rightmost) bit is channel 1
-    and the next bit is channel 2 -- the same convention used in the
-    combined motor `/stat` message's gpio_status field.
+    Confirmed against a real M048D on firmware MO.14.00, the response is
+    a semicolon-separated list of `KEY:value` pairs, e.g.:
 
-    **This mapping is unverified against real hardware for every model.**
-    If it doesn't match what you observe (e.g. via `mosquitto_sub` while
-    toggling the relay and running `gpiostatus=GET` manually), please open
-    an issue with the raw payload you saw -- see the README.
+        LED1_R:0;LED1_G:0;LED1_B:0;RELAY1:ON;SW1_DC:PULL;SW1_AC:PULL;
+
+    This is *not* documented in the vendor guide's Appendix A beyond the
+    command name -- the format above was reverse-engineered from a real
+    device and may not be identical across every model in the family
+    (in particular, other fields like LEDx_R/G/B and SW1_DC/SW1_AC are
+    ignored here since they aren't relevant to relay state, but may
+    differ or be absent on models without an indicator LED). Only
+    `RELAY<n>:ON`/`RELAY<n>:OFF` tokens are extracted.
 
     Returns an empty dict (meaning "unknown, don't override anything") if
-    the response can't be parsed as a binary string at all.
+    no `RELAY<n>` token is found at all -- e.g. if a different model
+    returns a genuinely different format.
     """
-    bits = response.strip()
-    if not bits or any(c not in "01" for c in bits):
-        return {}
-
     result: dict[int, bool] = {}
-    for channel in range(1, channels + 1):
-        bit_index_from_right = channel - 1
-        if bit_index_from_right >= len(bits):
+    for token in response.split(";"):
+        token = token.strip()
+        if not token or ":" not in token:
             continue
-        bit = bits[-(bit_index_from_right + 1)]
-        result[channel] = bit == "1"
+        key, _, value = token.partition(":")
+        match = re.match(r"^RELAY(\d+)$", key.strip().upper())
+        if not match:
+            continue
+        channel = int(match.group(1))
+        if 1 <= channel <= channels:
+            result[channel] = value.strip().upper() == "ON"
     return result
