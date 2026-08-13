@@ -1,6 +1,6 @@
 {
   "domain": "s_series_mqtt",
-  "name": "4box S Series (MQTT)",
+  "name": "4box S Series",
   "codeowners": ["@elax46"],
   "config_flow": true,
   "dependencies": ["mqtt"],
