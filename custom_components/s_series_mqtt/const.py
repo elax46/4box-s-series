@@ -119,6 +119,15 @@ def setpoint_payload(temperature: float) -> str:
     return f"tS={temperature}"
 
 
+def thermostat_profile_payload(profile_value: str) -> str:
+    """Command to recall a configured setpoint profile, e.g. tS=901 or
+    tS=1;Eco. `profile_value` is whatever the user declared it to be in
+    the integration's options (see CONF_THERMOSTAT_PROFILES) -- this
+    integration has no way to look up valid profile ids/names itself.
+    """
+    return f"tS={profile_value}"
+
+
 # --- initial-state fetch on setup/reload ------------------------------
 # Confirmed on a real M048D (firmware MO.14.00): `/stat/...` topics are
 # NOT published with the MQTT retain flag, so a fresh subscriber (e.g.
@@ -142,3 +151,27 @@ MOTOR_CMD_STATUS = "motor=STATUS"
 # manual entry always remains available as a fallback.
 TOPIC_CONNECT_WILDCARD = "+/connect"
 DISCOVERY_SCAN_SECONDS = 2
+
+# --- LED indicator (undocumented, reverse-engineered read-only) --------
+# Not mentioned anywhere in the vendor guide. Discovered from a real
+# M048D: `gpiostatus=GET` includes LED1_R/G/B fields, and the device also
+# spontaneously pushes /stat/led/1/{r,g,b}. No write command has been
+# found or documented, so this can only be exposed read-only (diagnostic
+# sensors), not a controllable `light` entity. Opt-in via CONF_HAS_LED
+# since it's unconfirmed whether every relay-family model has this LED.
+CONF_HAS_LED = "has_led"
+DEFAULT_HAS_LED = False
+TOPIC_LED_R = "{id}/stat/led/1/r"
+TOPIC_LED_G = "{id}/stat/led/1/g"
+TOPIC_LED_B = "{id}/stat/led/1/b"
+
+# --- thermostat presets (profile recall) --------------------------------
+# Fully documented in the vendor guide (section 6.2): a setpoint can be
+# recalled by numeric profile id (`tS=901`) or by mode+name (`tS=1;Eco`).
+# What ISN'T available over MQTT is a way to enumerate which profiles are
+# actually configured on a given device -- that's set up through the
+# vendor's own app/device config, invisible to this integration. So
+# instead of guessing, the user declares their own known profiles as an
+# option at setup time (see CONF_THERMOSTAT_PROFILES), which become
+# selectable Home Assistant climate presets.
+CONF_THERMOSTAT_PROFILES = "thermostat_profiles"

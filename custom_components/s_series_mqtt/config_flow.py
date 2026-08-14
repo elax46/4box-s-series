@@ -30,12 +30,15 @@ from .const import (
     CONF_DEVICE_TYPE,
     CONF_ENERGY_POLL_INTERVAL,
     CONF_HAS_ENERGY,
+    CONF_HAS_LED,
     CONF_HAS_TILT,
     CONF_NAME,
     CONF_PULSE_DURATION_MS,
     CONF_THERMOSTAT_POLL_INTERVAL,
+    CONF_THERMOSTAT_PROFILES,
     DEFAULT_CHANNELS,
     DEFAULT_ENERGY_POLL_INTERVAL,
+    DEFAULT_HAS_LED,
     DEFAULT_PULSE_DURATION_MS,
     DEFAULT_THERMOSTAT_POLL_INTERVAL,
     DEVICE_TYPE_MOTOR,
@@ -162,7 +165,7 @@ class SSeriesMqttConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_relay(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Step 2 (relay): channel count, energy metering."""
+        """Step 2 (relay): channel count, energy metering, LED sensors."""
         if user_input is not None:
             return self.async_create_entry(
                 title=self._base_data[CONF_NAME], data={**self._base_data, **user_input}
@@ -175,6 +178,7 @@ class SSeriesMqttConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(
                     CONF_ENERGY_POLL_INTERVAL, default=DEFAULT_ENERGY_POLL_INTERVAL
                 ): vol.All(int, vol.Range(min=30)),
+                vol.Optional(CONF_HAS_LED, default=DEFAULT_HAS_LED): bool,
             }
         )
         return self.async_show_form(step_id="relay", data_schema=schema)
@@ -212,7 +216,8 @@ class SSeriesMqttConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_thermostat(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Step 2 (thermostat): poll interval."""
+        """Step 2 (thermostat): poll interval, optional user-declared
+        setpoint profiles for the preset_mode selector."""
         if user_input is not None:
             return self.async_create_entry(
                 title=self._base_data[CONF_NAME], data={**self._base_data, **user_input}
@@ -223,7 +228,8 @@ class SSeriesMqttConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(
                     CONF_THERMOSTAT_POLL_INTERVAL,
                     default=DEFAULT_THERMOSTAT_POLL_INTERVAL,
-                ): vol.All(int, vol.Range(min=30))
+                ): vol.All(int, vol.Range(min=30)),
+                vol.Optional(CONF_THERMOSTAT_PROFILES, default=""): str,
             }
         )
         return self.async_show_form(step_id="thermostat", data_schema=schema)
@@ -261,6 +267,10 @@ class SSeriesMqttOptionsFlow(config_entries.OptionsFlow):
                             CONF_ENERGY_POLL_INTERVAL, DEFAULT_ENERGY_POLL_INTERVAL
                         ),
                     ): vol.All(int, vol.Range(min=30)),
+                    vol.Optional(
+                        CONF_HAS_LED,
+                        default=current.get(CONF_HAS_LED, DEFAULT_HAS_LED),
+                    ): bool,
                 }
             )
         elif device_type == DEVICE_TYPE_PUSH:
@@ -284,6 +294,10 @@ class SSeriesMqttOptionsFlow(config_entries.OptionsFlow):
                             DEFAULT_THERMOSTAT_POLL_INTERVAL,
                         ),
                     ): vol.All(int, vol.Range(min=30)),
+                    vol.Optional(
+                        CONF_THERMOSTAT_PROFILES,
+                        default=current.get(CONF_THERMOSTAT_PROFILES, ""),
+                    ): str,
                 }
             )
         else:  # motor: nothing to reconfigure post-setup today

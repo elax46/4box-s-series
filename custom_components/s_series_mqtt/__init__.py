@@ -16,11 +16,14 @@ from .const import (
     CONF_DEVICE_TYPE,
     CONF_ENERGY_POLL_INTERVAL,
     CONF_HAS_ENERGY,
+    CONF_HAS_LED,
     CONF_HAS_TILT,
     CONF_PULSE_DURATION_MS,
     CONF_THERMOSTAT_POLL_INTERVAL,
+    CONF_THERMOSTAT_PROFILES,
     DEFAULT_CHANNELS,
     DEFAULT_ENERGY_POLL_INTERVAL,
+    DEFAULT_HAS_LED,
     DEFAULT_PULSE_DURATION_MS,
     DEFAULT_THERMOSTAT_POLL_INTERVAL,
     DEVICE_TYPE_MOTOR,
@@ -34,7 +37,7 @@ from .coordinator import (
     SSeriesEnergyCoordinator,
     SSeriesThermostatCoordinator,
 )
-from .utils import parse_gpio_status
+from .utils import parse_gpio_status, parse_thermostat_profiles
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,6 +62,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if device_type == DEVICE_TYPE_RELAY:
         entry_data["channels"] = options.get(CONF_CHANNELS, DEFAULT_CHANNELS)
+        entry_data["has_led"] = options.get(CONF_HAS_LED, DEFAULT_HAS_LED)
 
         # Fetch the current relay state right now instead of waiting for
         # the device's next spontaneous /stat push (which may not come
@@ -95,6 +99,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.async_start()
         await coordinator.async_config_entry_first_refresh()
         entry_data["thermostat_coordinator"] = coordinator
+        entry_data["thermostat_profiles"] = parse_thermostat_profiles(
+            options.get(CONF_THERMOSTAT_PROFILES, "")
+        )
 
     hass.data[DOMAIN][entry.entry_id] = entry_data
 

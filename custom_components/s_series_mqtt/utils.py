@@ -116,3 +116,36 @@ def parse_gpio_status(response: str, channels: int) -> dict[int, bool]:
         if 1 <= channel <= channels:
             result[channel] = value.strip().upper() == "ON"
     return result
+
+
+def parse_thermostat_profiles(raw: str) -> list[tuple[str, str]]:
+    """Parse a user-entered thermostat profile list into (name, value) pairs.
+
+    Expected format, comma-separated `Name:tS-value` pairs, e.g.:
+
+        Eco:901,Comfort:902,Manual 18:-1;Manual;18
+
+    `tS-value` is whatever goes after `tS=` on the wire -- a numeric
+    profile id (`901`) or a mode+name recall (`1;Eco`), exactly as
+    documented in the vendor guide section 6.2. This integration has no
+    way to know which profiles actually exist on a given device, so the
+    user must supply this list themselves, matching what they configured
+    via the vendor's own app.
+
+    Malformed entries (missing ':', empty name, empty value) are skipped
+    rather than raising, so one typo doesn't break the whole list. Order
+    is preserved and duplicates by name are not de-duplicated (last one
+    wins when building the lookup dict elsewhere), which keeps this
+    function a pure, side-effect-free parser.
+    """
+    profiles: list[tuple[str, str]] = []
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry or ":" not in entry:
+            continue
+        name, _, value = entry.partition(":")
+        name = name.strip()
+        value = value.strip()
+        if name and value:
+            profiles.append((name, value))
+    return profiles

@@ -1,5 +1,12 @@
 # Dependencies for running the automated test suite (tests/).
 # Not used by the integration itself at runtime.
-pytest==8.3.4
-pytest-asyncio==0.24.0
-pytest-homeassistant-custom-component==0.13.205
+#
+# Deliberately NOT pinned to exact patch versions: pytest-homeassistant-
+# custom-component pulls in a full Home Assistant core snapshot with many
+# tightly-pinned transitive dependencies (e.g. home-assistant-bluetooth),
+# and some of those exact pins get yanked from PyPI or lose Python-version
+# compatibility over time. A minimum-version constraint lets pip resolve
+# whatever combination is actually installable for your Python version.
+pytest>=8.0
+pytest-asyncio>=0.24
+pytest-homeassistant-custom-component>=0.13

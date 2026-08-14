@@ -101,6 +101,10 @@ integration's **Configure** button without re-adding the device.
   this value on its own).
 - **Diagnostic binary sensors**: overcurrent, overtemperature.
 - Single-channel and two-channel (M053B dual-light) devices both supported.
+- **Optional, experimental**: indicator LED RGB value sensors (read-only
+  diagnostic sensors), if you enable "Device has an indicator LED" at
+  setup. See [Indicator LED (undocumented, read-only)](#indicator-led-undocumented-read-only)
+  below for what this is and its limitations.
 
 ### Motorized shutter (cover)
 - Full open/close/stop plus **absolute position** (`motor=MOVE&perc=`),
@@ -134,10 +138,49 @@ integration's **Configure** button without re-adding the device.
   pair, so this entity is backed by periodic polling (interval
   configurable at setup, default 120s), which also means it's always
   correct immediately after setup/reload without any special handling.
-- The guide's profile-recall setpoint forms (`tS=901`, `tS=1;Eco`) aren't
-  exposed, since they depend on per-device profile configuration this
-  integration has no way to introspect from MQTT alone — only the manual
-  short-form setpoint (`tS=20.5`) is used.
+- **Optional setpoint presets**: the guide documents recalling a
+  pre-configured setpoint profile by numeric id (`tS=901`) or by
+  mode+name (`tS=1;Eco`) — fully valid, documented commands. What isn't
+  available over MQTT is a way to discover which profiles exist on a
+  given device (that's set up through the vendor's own app). So instead
+  of guessing, you can declare your own known profiles as a setup/options
+  field, format `Name:value,Name:value`, e.g.:
+  ```
+  Eco:901,Comfort:902,Manual 18:-1;Manual;18
+  ```
+  Each declared name becomes a selectable Home Assistant climate preset;
+  selecting one sends `tS=<value>` verbatim. Leave the field empty (the
+  default) to skip presets entirely.
+  - **Caveat**: the device doesn't report *which* profile (if any) is
+    currently active — only the resulting numeric setpoint. The preset
+    shown in Home Assistant reflects the last preset *this integration*
+    selected, optimistically, and doesn't repopulate correctly after a
+    setpoint change made some other way (the vendor app, or a manual
+    temperature change here). Treat it as a shortcut for *setting* a
+    known profile, not as an authoritative readout of which one is active.
+
+## Indicator LED (undocumented, read-only)
+
+Not mentioned anywhere in the vendor guide. Discovered from a real M048D
+(FW MO.14.00): `gpiostatus=GET`'s response includes `LED1_R`/`LED1_G`/
+`LED1_B` fields, and the device also spontaneously pushes
+`/stat/led/1/{r,g,b}` on change — see [Initial state on
+setup/reload](#initial-state-on-setupreload) below for the full
+`gpiostatus=GET` payload example.
+
+If you enable **"Device has an indicator LED"** for a relay-family
+device (off by default — unconfirmed whether every model has this),
+three diagnostic sensors are added showing the current R/G/B values
+(0-255 each).
+
+**No write command has been found or documented** to control this LED,
+so this can only ever be read-only sensors, not a controllable `light`
+entity, unless someone finds the right command. If you have real
+hardware and want to help: try publishing speculative commands like
+`led=255,0,0`, `led1=FF0000`, or similar to `<ID>/cmnd` while watching
+`/stat/led/1/{r,g,b}` and `<ID>/info` for any response, and open an issue
+with what you find (or don't — a clear "nothing happened" is useful data
+too).
 
 ## Initial state on setup/reload
 
@@ -222,6 +265,7 @@ than failing setup.
 | `sensor.<device>_energy` | sensor |
 | `binary_sensor.<device>_overcurrent` | binary_sensor |
 | `binary_sensor.<device>_overtemperature` | binary_sensor |
+| `sensor.<device>_led_red` / `_green` / `_blue` | sensor *(only if "has an indicator LED" is enabled)* |
 </details>
 
 <details>
@@ -248,7 +292,7 @@ than failing setup.
 
 | Entity | Platform |
 |---|---|
-| `climate.<device>` | climate |
+| `climate.<device>` | climate — presets appear automatically if you declared any setpoint profiles at setup |
 </details>
 
 ## Architecture
@@ -266,7 +310,8 @@ custom_components/s_series_mqtt/
 ├── cover.py               # motorized shutter (MQTT push + motor=STATUS on setup)
 ├── button.py             # motor calibrate + push pulse trigger
 ├── climate.py             # thermostat (polled)
-├── utils.py               # model-from-ID, motor /stat parser, gpiostatus parser
+├── utils.py               # model-from-ID, motor /stat parser, gpiostatus
+│                           # parser, thermostat profile string parser
 ├── manifest.json
 ├── strings.json / translations/en.json
 ```
@@ -385,13 +430,47 @@ After editing any file under `custom_components/s_series_mqtt/`, restart
 Home Assistant (`docker compose restart homeassistant`, or Developer
 Tools → YAML → *Restart* from the HA UI).
 
+### 4. Run the automated test suite
+
+```bash
+python3 -m venv .venv-test && source .venv-test/bin/activate
+pip install -r requirements-test.txt
+pytest
+```
+
+This runs entirely against a **real (test) Home Assistant core instance**
+via `pytest-homeassistant-custom-component` — not just static imports —
+so it exercises the actual config entry / MQTT / entity plumbing, not
+only pure-Python logic. Coverage as of this writing:
+
+- `tests/test_utils.py` — parsing logic (`parse_motor_stat`,
+  `parse_gpio_status`, `model_from_device_id`, `build_action_payload`,
+  `parse_thermostat_profiles`). Includes the exact real payloads captured
+  from an M048D (FW MO.14.00) as regression tests, so a change to the
+  vendor firmware's response format — or an accidental regression in the
+  parser — would be caught immediately.
+- `tests/test_const_payloads.py` — every `/cmnd` payload builder
+  (`motor_move_payload`, `pulse_payload`, `thermostat_mode_payload`,
+  `setpoint_payload`, etc.), since a typo here silently breaks commands
+  against real hardware.
+- `tests/test_config_flow.py` — the full two-step config flow against a
+  real Home Assistant instance and a mocked MQTT client: happy path,
+  invalid device ID rejection, duplicate device ID abort, and MQTT
+  discovery (a device announcing itself is picked up, an offline device
+  is excluded, and a scan failure falls back to manual entry gracefully).
+
+Not yet covered: entity-level tests for `switch`/`cover`/`climate`/etc.
+behavior (state updates from MQTT push messages, service calls) and the
+energy/thermostat polling coordinators — see [Roadmap](#roadmap).
+
 ### Code style
 
 Plain `async`/`await`, standard Home Assistant entity patterns
 (`DataUpdateCoordinator` for polled data, direct MQTT subscription for
 pushed data). No external runtime dependencies beyond Home Assistant core
-and its bundled MQTT integration (`paho-mqtt` is a *dev-only* dependency
-of the simulator script, not of the integration itself).
+and its bundled MQTT integration (`paho-mqtt` and the packages in
+`requirements-test.txt` are *dev-only* dependencies of the simulator
+script and test suite, not of the integration itself).
 
 Contributions for any of the above are very welcome — open an issue or PR.
 
@@ -400,3 +479,4 @@ Contributions for any of the above are very welcome — open an issue or PR.
 This is an independent, community-built integration. It is not affiliated
 with, endorsed by, or supported by Finder S.p.A. or 4box. All product
 names and trademarks belong to their respective owners.
+

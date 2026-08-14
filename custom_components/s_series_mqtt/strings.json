@@ -15,7 +15,8 @@
         "data": {
           "channels": "Number of relay channels",
           "has_energy": "Device has an energy meter",
-          "energy_poll_interval": "Energy poll interval (seconds)"
+          "energy_poll_interval": "Energy poll interval (seconds)",
+          "has_led": "Device has an indicator LED (experimental, read-only)"
         }
       },
       "motor": {
@@ -33,7 +34,8 @@
       "thermostat": {
         "title": "Thermostat options",
         "data": {
-          "thermostat_poll_interval": "Poll interval (seconds)"
+          "thermostat_poll_interval": "Poll interval (seconds)",
+          "thermostat_profiles": "Setpoint profiles (optional, format: Name:value,Name:value, e.g. Eco:901,Comfort:902)"
         }
       }
     },
@@ -49,8 +51,10 @@
       "init": {
         "data": {
           "energy_poll_interval": "Energy poll interval (seconds)",
+          "has_led": "Device has an indicator LED (experimental, read-only)",
           "pulse_duration_ms": "Default pulse duration (ms)",
-          "thermostat_poll_interval": "Poll interval (seconds)"
+          "thermostat_poll_interval": "Poll interval (seconds)",
+          "thermostat_profiles": "Setpoint profiles (optional, format: Name:value,Name:value, e.g. Eco:901,Comfort:902)"
         }
       }
     }

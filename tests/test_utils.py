@@ -30,6 +30,7 @@ from utils import (  # noqa: E402
     model_from_device_id,
     parse_gpio_status,
     parse_motor_stat,
+    parse_thermostat_profiles,
 )
 
 
@@ -141,3 +142,35 @@ class TestParseGpioStatus:
     def test_no_relay_token_returns_empty_dict(self):
         # A hypothetical different-model response with no RELAY field at all.
         assert parse_gpio_status("LED1_R:0;LED1_G:0;LED1_B:0;", channels=1) == {}
+
+
+class TestParseThermostatProfiles:
+    def test_basic_pair(self):
+        assert parse_thermostat_profiles("Eco:901,Comfort:902") == [
+            ("Eco", "901"),
+            ("Comfort", "902"),
+        ]
+
+    def test_value_containing_semicolons(self):
+        # The "mode+name" recall form (tS=-1;Manual;18) contains semicolons
+        # itself, so the parser must not split on those, only on commas.
+        assert parse_thermostat_profiles("Manual 18:-1;Manual;18") == [
+            ("Manual 18", "-1;Manual;18")
+        ]
+
+    def test_empty_string_returns_empty_list(self):
+        assert parse_thermostat_profiles("") == []
+
+    def test_entries_without_colon_are_skipped(self):
+        assert parse_thermostat_profiles("garbage, no colons here") == []
+
+    def test_malformed_entries_are_skipped_not_fatal(self):
+        assert parse_thermostat_profiles(
+            "Eco:901,,Comfort:902, :novalue,NoValue:"
+        ) == [("Eco", "901"), ("Comfort", "902")]
+
+    def test_whitespace_is_trimmed(self):
+        assert parse_thermostat_profiles("  Eco : 901 , Comfort : 902  ") == [
+            ("Eco", "901"),
+            ("Comfort", "902"),
+        ]

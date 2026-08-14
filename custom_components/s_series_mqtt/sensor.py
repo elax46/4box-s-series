@@ -19,13 +19,16 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     DOMAIN,
     MANUFACTURER,
+    TOPIC_LED_B,
+    TOPIC_LED_G,
+    TOPIC_LED_R,
     TOPIC_MOTOR_STAT,
     TOPIC_RELAY_CURRENT,
     TOPIC_RELAY_POWER,
@@ -67,6 +70,11 @@ async def async_setup_entry(
 
     entities.append(SSeriesVoltageSensor(device_id))
     entities.append(SSeriesTemperatureSensor(device_id))
+
+    if entry_data.get("has_led"):
+        entities.append(SSeriesLedChannelSensor(device_id, "r", "Red"))
+        entities.append(SSeriesLedChannelSensor(device_id, "g", "Green"))
+        entities.append(SSeriesLedChannelSensor(device_id, "b", "Blue"))
 
     async_add_entities(entities)
 
@@ -228,5 +236,49 @@ class SSeriesMotorPowerSensor(SensorEntity):
             if stat.power_w is not None:
                 self._attr_native_value = stat.power_w
                 self.async_write_ha_state()
+
+        self.async_on_remove(await mqtt.async_subscribe(self.hass, self._topic, handler))
+
+
+class SSeriesLedChannelSensor(SensorEntity):
+    """One channel (R, G, or B) of the device's indicator LED, read-only.
+
+    This is a reverse-engineered, undocumented feature (see const.py's
+    CONF_HAS_LED docstring): the vendor guide never mentions an LED, and
+    no write command has been found to control it -- only observed
+    values via `gpiostatus=GET`'s LED1_R/G/B fields and the spontaneous
+    `/stat/led/1/{r,g,b}` pushes this class subscribes to. Because there's
+    no way to control it, this is a plain diagnostic sensor rather than a
+    `light` entity.
+    """
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = None
+    _attr_icon = "mdi:palette"
+
+    _TOPIC_BY_CHANNEL = {"r": TOPIC_LED_R, "g": TOPIC_LED_G, "b": TOPIC_LED_B}
+
+    def __init__(self, device_id: str, channel: str, label: str) -> None:
+        self._device_id = device_id
+        self._attr_unique_id = f"{device_id}_led_1_{channel}"
+        self._attr_name = f"LED {label}"
+        self._topic = self._TOPIC_BY_CHANNEL[channel].format(id=device_id)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_id)},
+            manufacturer=MANUFACTURER,
+            model=model_from_device_id(device_id),
+            name=device_id,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        @callback
+        def handler(msg) -> None:
+            try:
+                self._attr_native_value = int(msg.payload)
+            except ValueError:
+                return
+            self.async_write_ha_state()
 
         self.async_on_remove(await mqtt.async_subscribe(self.hass, self._topic, handler))
