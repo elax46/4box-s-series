@@ -1,0 +1,19 @@
+name: Linting
+
+on:
+  push:
+    branches: [ "main", "dev" ]
+  pull_request:
+    branches: [ "main", "dev" ]
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ruff
+        run: pip install ruff
+      - name: Run Ruff Linter
+        run: ruff check custom_components/s_series_mqtt
+      - name: Run Ruff Format check
+        run: ruff format --check custom_components/s_series_mqtt
