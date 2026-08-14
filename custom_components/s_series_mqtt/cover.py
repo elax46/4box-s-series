@@ -61,7 +61,9 @@ async def async_setup_entry(
     async_add_entities([SSeriesMotorCover(device_id, has_tilt)])
 
 
-def _infer_moving_direction(motor_status: str | None) -> tuple[bool | None, bool | None]:
+def _infer_moving_direction(
+    motor_status: str | None,
+) -> tuple[bool | None, bool | None]:
     """Best-effort (is_opening, is_closing) from a motor_status string.
 
     Returns (None, None) when the status can't be confidently classified,
@@ -143,9 +145,7 @@ class SSeriesMotorCover(CoverEntity):
             await mqtt.async_subscribe(self.hass, self._stat_topic, stat_received)
         )
         self.async_on_remove(
-            await mqtt.async_subscribe(
-                self.hass, self._connect_topic, connect_received
-            )
+            await mqtt.async_subscribe(self.hass, self._connect_topic, connect_received)
         )
 
         # Ask the device to (re-)publish its current position/status now,

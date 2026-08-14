@@ -138,8 +138,7 @@ class SSeriesEnergyCoordinator(DataUpdateCoordinator[dict[int, float]]):
         value = _extract_number(response)
         if value is None:
             raise UpdateFailed(
-                f"Unexpected energy payload from {self._poller.device_id}: "
-                f"{response!r}"
+                f"Unexpected energy payload from {self._poller.device_id}: {response!r}"
             )
         return value
 

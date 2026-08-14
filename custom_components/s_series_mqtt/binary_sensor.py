@@ -43,7 +43,8 @@ async def async_setup_entry(
     channels: int = entry_data["channels"]
 
     entities: list[BinarySensorEntity] = [
-        SSeriesOvercurrentSensor(device_id, channel) for channel in range(1, channels + 1)
+        SSeriesOvercurrentSensor(device_id, channel)
+        for channel in range(1, channels + 1)
     ]
     entities.append(SSeriesOvertemperatureSensor(device_id))
 
@@ -77,7 +78,9 @@ class _SSeriesBinarySensorBase(BinarySensorEntity):
             self._attr_is_on = msg.payload.strip().lower() == self._on_payload
             self.async_write_ha_state()
 
-        self.async_on_remove(await mqtt.async_subscribe(self.hass, self._topic, handler))
+        self.async_on_remove(
+            await mqtt.async_subscribe(self.hass, self._topic, handler)
+        )
 
 
 class SSeriesOvercurrentSensor(_SSeriesBinarySensorBase):
