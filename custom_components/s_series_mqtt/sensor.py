@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import ClassVar
 
 from homeassistant.components import mqtt
 from homeassistant.components.sensor import (
@@ -107,7 +108,9 @@ class _SSeriesPushSensorBase(SensorEntity):
                 return
             self.async_write_ha_state()
 
-        self.async_on_remove(await mqtt.async_subscribe(self.hass, self._topic, handler))
+        self.async_on_remove(
+            await mqtt.async_subscribe(self.hass, self._topic, handler)
+        )
 
     async def async_added_to_hass(self) -> None:
         await self._subscribe()
@@ -237,7 +240,9 @@ class SSeriesMotorPowerSensor(SensorEntity):
                 self._attr_native_value = stat.power_w
                 self.async_write_ha_state()
 
-        self.async_on_remove(await mqtt.async_subscribe(self.hass, self._topic, handler))
+        self.async_on_remove(
+            await mqtt.async_subscribe(self.hass, self._topic, handler)
+        )
 
 
 class SSeriesLedChannelSensor(SensorEntity):
@@ -258,7 +263,11 @@ class SSeriesLedChannelSensor(SensorEntity):
     _attr_native_unit_of_measurement = None
     _attr_icon = "mdi:palette"
 
-    _TOPIC_BY_CHANNEL = {"r": TOPIC_LED_R, "g": TOPIC_LED_G, "b": TOPIC_LED_B}
+    _TOPIC_BY_CHANNEL: ClassVar[dict[str, str]] = {
+        "r": TOPIC_LED_R,
+        "g": TOPIC_LED_G,
+        "b": TOPIC_LED_B,
+    }
 
     def __init__(self, device_id: str, channel: str, label: str) -> None:
         self._device_id = device_id
@@ -281,4 +290,6 @@ class SSeriesLedChannelSensor(SensorEntity):
                 return
             self.async_write_ha_state()
 
-        self.async_on_remove(await mqtt.async_subscribe(self.hass, self._topic, handler))
+        self.async_on_remove(
+            await mqtt.async_subscribe(self.hass, self._topic, handler)
+        )

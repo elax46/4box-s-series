@@ -93,9 +93,7 @@ class SSeriesRelaySwitch(SwitchEntity):
             await mqtt.async_subscribe(self.hass, self._state_topic, state_received)
         )
         self.async_on_remove(
-            await mqtt.async_subscribe(
-                self.hass, self._connect_topic, connect_received
-            )
+            await mqtt.async_subscribe(self.hass, self._connect_topic, connect_received)
         )
 
     async def async_turn_on(self, **kwargs) -> None:
