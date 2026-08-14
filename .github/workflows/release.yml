@@ -38,9 +38,28 @@ jobs:
           echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
           echo "Final Version: $VERSION"
 
+      - name: Update manifest.json Version
+        run: |
+          MANIFEST="custom_components/s_series_mqtt/manifest.json"
+          VERSION="${{ steps.vars.outputs.tag }}"
+          
+          # Aggiorna il campo version nel file manifest.json
+          jq --arg v "$VERSION" '.version = $v' "$MANIFEST" > tmp.json && mv tmp.json "$MANIFEST"
+          echo "✅ Updated $MANIFEST to version $VERSION"
+
+      - name: Commit Updated Manifest
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add custom_components/s_series_mqtt/manifest.json
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(release): update manifest.json to ${{ steps.vars.outputs.tag }}"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+
       - name: Create Zip Package
         run: |
-          # Entra in custom_components per impacchettare direttamente s_series_mqtt alla radice dello zip
+          # Entra in custom_components per impacchettare s_series_mqtt alla radice dello zip
           cd custom_components
           zip -r ../4box_s_series.zip s_series_mqtt
           cd ..
