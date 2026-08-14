@@ -23,7 +23,7 @@ jobs:
       - name: Generate Unique Version Tag
         id: vars
         run: |
-          YEAR_MONTH=$(date +'%Y.%m')
+          YEAR_MONTH=$(date +'%Y.%-m')
           PATCH=0
 
           while git ls-remote --tags origin | grep -q "refs/tags/$YEAR_MONTH.$PATCH"; do
