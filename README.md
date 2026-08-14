@@ -105,8 +105,7 @@ integration's **Configure** button without re-adding the device.
 
 ### Relay / socket
 - **Switch** per relay channel (on/off/toggle), state pushed live, with
-  its current state actively fetched at setup/reload (see
-  [Initial state on setup](#initial-state-on-setupreload) below) so it's
+  its current state actively fetched at setup/reload so it's
   correct immediately rather than only after the next physical toggle.
 - **Sensors**: power (W), current (A), voltage (V), temperature (°C) —
   pushed spontaneously by the firmware.
