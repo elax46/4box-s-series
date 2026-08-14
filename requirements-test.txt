@@ -7,7 +7,7 @@
 # and some of those exact pins get yanked from PyPI or lose Python-version
 # compatibility over time. A minimum-version constraint lets pip resolve
 # whatever combination is actually installable for your Python version.
-pytest>=8.0
+pytest>=9.1.1
 pytest-asyncio>=0.24
 pytest-homeassistant-custom-component>=0.13
 pytest-cov
