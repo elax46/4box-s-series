@@ -1,0 +1,123 @@
+name: Auto Release Integration
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Force Tag Sync
+        run: |
+          git fetch --tags --force --prune
+          git pull --tags || true
+
+      - name: Generate Unique Version Tag
+        id: vars
+        run: |
+          YEAR_MONTH=$(date +'%Y.%m')
+          PATCH=0
+
+          while git ls-remote --tags origin | grep -q "refs/tags/$YEAR_MONTH.$PATCH"; do
+            echo "Tag $YEAR_MONTH.$PATCH exists on remote, skipping..."
+            PATCH=$((PATCH + 1))
+          done
+
+          VERSION="$YEAR_MONTH.$PATCH"
+          echo "tag=$VERSION" >> $GITHUB_OUTPUT
+
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+          echo "Final Version: $VERSION (Previous: ${PREV_TAG:-None})"
+
+      - name: Create Zip Package
+        run: |
+          zip -r 4box_s_series.zip custom_components/s_series_mqtt
+          if [ ! -f 4box_s_series.zip ]; then
+            echo "❌ File 4box_s_series.zip non trovato!"
+            exit 1
+          fi
+
+      - name: Generate AI Code Analysis & Summary
+        id: ai_summary
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          PREV_TAG="${{ steps.vars.outputs.prev_tag }}"
+          
+          if [ -z "$PREV_TAG" ]; then
+            COMMITS=$(git log -n 10 --oneline)
+            DIFF_STAT=$(git diff HEAD~5 HEAD --stat custom_components/)
+          else
+            COMMITS=$(git log $PREV_TAG..HEAD --oneline)
+            DIFF_STAT=$(git diff $PREV_TAG..HEAD --stat custom_components/)
+          fi
+
+          # Se la chiave GEMINI_API_KEY è presente nei secrets, usiamo l'IA per l'analisi
+          if [ -n "$GEMINI_API_KEY" ]; then
+            echo "🤖 Generating AI Summary using Gemini..."
+            
+            PROMPT="You are a senior Home Assistant integration developer. Analyze the following git commits and diff statistics for the '4box-s-series' custom component. Write a concise, professional release summary in English for Home Assistant users. Include sections for Features, Fixes, or Maintenance if applicable. Do not invent features not present in the log.
+            
+            Commits:
+            $COMMITS
+
+            Diff Stats:
+            $DIFF_STAT"
+
+            # Chiamata API Gemini
+            JSON_PAYLOAD=$(jq -n --arg prompt "$PROMPT" '{contents: [{parts: [{text: $prompt}]}]}')
+            RESPONSE=$(curl -s -H "Content-Type: application/json" \
+              -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}" \
+              -d "$JSON_PAYLOAD")
+
+            SUMMARY=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
+          fi
+
+          # Fallback se non c'è l'API key o la chiamata fallisce
+          if [ -z "$SUMMARY" ]; then
+            echo "⚠️ Using Git commit log fallback..."
+            SUMMARY="### 🛠️ Code Changes in this Release
+            
+            $COMMITS"
+          fi
+
+          {
+            echo 'SUMMARY<<EOF'
+            echo "$SUMMARY"
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+      - name: Create Release Notes Header
+        id: body
+        run: |
+          {
+            echo 'BODY<<EOF'
+            echo "[![GitHub Downloads (specific tag)](https://img.shields.io/github/downloads/${{ github.repository }}/${{ steps.vars.outputs.tag }}/total?style=for-the-badge)](https://github.com/${{ github.repository }}/releases/tag/${{ steps.vars.outputs.tag }})"
+            echo ""
+            echo "### 🤖 Automated Code Analysis"
+            echo "${{ steps.ai_summary.outputs.SUMMARY }}"
+            echo ""
+            echo "### 📦 Manual Installation"
+            echo "Download \`4box_s_series.zip\`, extract it, and copy the \`s_series_mqtt\` folder into your Home Assistant \`config/custom_components/\` directory."
+            echo ""
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: ${{ steps.vars.outputs.tag }}
+          body: ${{ steps.body.outputs.BODY }}
+          generate_release_notes: true
+          make_latest: true
+          files: 4box_s_series.zip
