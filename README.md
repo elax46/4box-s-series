@@ -16,8 +16,8 @@ your Wi-Fi and speak plain MQTT to a broker of your choice. This
 integration talks to them over that same broker via Home Assistant's
 built-in **MQTT integration**.
 
-Tested against a real P40S — which reports model **M048D** in its MQTT
-device ID — on firmware **MO.14.00**.
+> [!WARNING]  
+> Please note that integration has currently only been tested with the P40S device. The implementation for other devices is based on the manufacturer's documentation and has not been tested due to the lack of physical devices.
 
 ## Setting up the physical device
 
@@ -70,7 +70,7 @@ integration to subscribe to.
 1. Make sure the MQTT integration is set up first, and the physical
    device has MQTT enabled as described above.
 2. Settings → Devices & Services → **Add Integration** → search for
-   "4box S Series (MQTT)".
+   "4box S Series".
 3. **Step 1**: pick the **device family** (relay / motorized shutter /
    Uniko Push / thermostat), enter the **device ID** exactly as printed
    on the device (format `<model>-<MAC>`, e.g. `M048B-30AEA4A6D460`), and
@@ -103,8 +103,7 @@ integration's **Configure** button without re-adding the device.
 - Single-channel and two-channel (M053B dual-light) devices both supported.
 - **Optional, experimental**: indicator LED RGB value sensors (read-only
   diagnostic sensors), if you enable "Device has an indicator LED" at
-  setup. See [Indicator LED (undocumented, read-only)](#indicator-led-undocumented-read-only)
-  below for what this is and its limitations.
+  setup.
 
 ### Motorized shutter (cover)
 - Full open/close/stop plus **absolute position** (`motor=MOVE&perc=`),
@@ -158,97 +157,6 @@ integration's **Configure** button without re-adding the device.
     setpoint change made some other way (the vendor app, or a manual
     temperature change here). Treat it as a shortcut for *setting* a
     known profile, not as an authoritative readout of which one is active.
-
-## Indicator LED (undocumented, read-only)
-
-Not mentioned anywhere in the vendor guide. Discovered from a real M048D
-(FW MO.14.00): `gpiostatus=GET`'s response includes `LED1_R`/`LED1_G`/
-`LED1_B` fields, and the device also spontaneously pushes
-`/stat/led/1/{r,g,b}` on change — see [Initial state on
-setup/reload](#initial-state-on-setupreload) below for the full
-`gpiostatus=GET` payload example.
-
-If you enable **"Device has an indicator LED"** for a relay-family
-device (off by default — unconfirmed whether every model has this),
-three diagnostic sensors are added showing the current R/G/B values
-(0-255 each).
-
-**No write command has been found or documented** to control this LED,
-so this can only ever be read-only sensors, not a controllable `light`
-entity, unless someone finds the right command. If you have real
-hardware and want to help: try publishing speculative commands like
-`led=255,0,0`, `led1=FF0000`, or similar to `<ID>/cmnd` while watching
-`/stat/led/1/{r,g,b}` and `<ID>/info` for any response, and open an issue
-with what you find (or don't — a clear "nothing happened" is useful data
-too).
-
-## Initial state on setup/reload
-
-Real-hardware testing (P40S / M048D, firmware MO.14.00) confirmed that the
-device's `/stat/relay/1` (and the combined motor `/stat`) pushes are
-**not published with the MQTT retain flag**. That means a subscriber that
-starts *after* the device already reached its current state — which is
-exactly what happens every time the integration is set up, reloaded, or
-Home Assistant restarts — receives nothing until the relay/motor's next
-actual state change. Until then, a naive push-only implementation shows
-the switch as off/unavailable even if the socket is physically on.
-
-This integration works around it by actively requesting the current
-state once, right at setup:
-
-- **Relay devices**: `gpiostatus=GET` (documented in the guide's Appendix
-  A cheat-sheet) is queried once in `__init__.py` before the switch
-  platform is set up, and its response seeds the switch's initial state
-  instead of defaulting to off/unavailable.
-- **Motor devices**: `motor=STATUS` (documented explicitly in the guide's
-  motor section: *"Stato runtime pubblicato su /stat"*) is published once
-  the cover entity subscribes, which makes the firmware immediately
-  re-publish its current position/status on the topic we're already
-  listening to — no separate response-parsing path needed.
-- **Thermostat**: unaffected, since it's polled from scratch on every
-  refresh anyway (see above).
-- **Uniko Push**: not addressed yet, since the relay state there is
-  inherently transient (on only during a pulse) and less likely to be
-  stale in a way that matters — tracked in the [Roadmap](#roadmap).
-
-### `gpiostatus=GET` response format (reverse-engineered)
-
-The vendor guide's Appendix A only lists the command name
-(`gpiostatus=GET` → *"Lettura GPIO"*) without documenting its response
-format. **Confirmed on a real M048D, firmware MO.14.00**, it's a
-semicolon-separated list of `KEY:value` pairs:
-
-```
-LED1_R:0;LED1_G:0;LED1_B:0;RELAY1:ON;SW1_DC:PULL;SW1_AC:PULL;
-```
-
-`utils.parse_gpio_status` extracts `RELAY<n>:ON`/`RELAY<n>:OFF` tokens
-from this and ignores the rest (LED indicator color, input pull state,
-etc. — not relevant to relay state, and not necessarily present on every
-model). This was verified for a single-channel device; the 2-channel
-case (M053B dual-light, expected as `RELAY1:...;RELAY2:...;` in the same
-list) is untested — if you have one and can confirm or correct it, please
-open an issue with the raw payload.
-
-Two other things worth knowing, discovered from the same real-device
-capture, in case you're debugging with `mosquitto_sub` yourself:
-
-- **`action=ON`/`action=OFF` replies on `/info` with `<ON>`/`<OFF>`**,
-  not `"DONE"` as the PDF guide documents. The integration doesn't parse
-  this particular response (it relies on the `/stat/relay/1` push or the
-  `gpiostatus=GET` fetch instead), so this didn't require a code change,
-  but it's a discrepancy worth knowing about if you're comparing raw MQTT
-  traffic against the guide.
-- The device also spontaneously publishes `/stat/led/1/{r,g,b}` and a
-  second combined `/stat` message in the same `KEY:value` format as
-  `gpiostatus=GET` (with a trailing `=>0`) — likely related to an
-  indicator LED. Neither is currently used by this integration; possible
-  future `light` platform, see [Roadmap](#roadmap).
-
-If `gpiostatus=GET`'s response can't be parsed at all (no `RELAY<n>`
-token found), the integration logs a debug message and falls back to the
-old off/unavailable-until-first-push behavior for that device, rather
-than failing setup.
 
 ## Entities created
 
@@ -347,11 +255,6 @@ Design notes:
 
 ## Development setup
 
-You don't need real hardware to develop against this integration — a
-Home Assistant instance, a local MQTT broker, and the included device
-simulator (covering all four families) is enough. If you *do* have
-hardware, you can also point it at the same dev broker (see below).
-
 ### 1. Start Home Assistant + Mosquitto
 
 ```bash
@@ -372,7 +275,7 @@ Finish onboarding, then:
    (MQTT)** → pick a family and a device ID matching whatever you run the
    simulator with below (or your real device — see next section).
 
-### 2a. Testing with the simulator (no hardware needed)
+### 2a. Testing with the simulators
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -402,8 +305,7 @@ documented for its family — see `scripts/simulate_device.py` docstrings
 for exactly what each one implements. Relay/motor state pushes are
 deliberately **not retained**, matching the real firmware, so the
 simulator reproduces the "state doesn't show up until setup actively
-fetches it" scenario the integration now handles — see
-[Initial state on setup/reload](#initial-state-on-setupreload).
+fetches it" scenario the integration now handles.
 
 ### 2b. Testing with a real device
 
@@ -461,7 +363,7 @@ only pure-Python logic. Coverage as of this writing:
 
 Not yet covered: entity-level tests for `switch`/`cover`/`climate`/etc.
 behavior (state updates from MQTT push messages, service calls) and the
-energy/thermostat polling coordinators — see [Roadmap](#roadmap).
+energy/thermostat polling coordinators. 
 
 ### Code style
 
