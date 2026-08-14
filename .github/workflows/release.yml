@@ -63,7 +63,6 @@ jobs:
 
           # Se la chiave GEMINI_API_KEY è presente nei secrets, usiamo l'IA per l'analisi
           if [ -n "$GEMINI_API_KEY" ]; then
-            echo "🤖 Generating AI Summary using Gemini..."
             
             PROMPT="You are a senior Home Assistant integration developer. Analyze the following git commits and diff statistics for the '4box-s-series' custom component. Write a concise, professional release summary in English for Home Assistant users. Include sections for Features, Fixes, or Maintenance if applicable. Do not invent features not present in the log.
             
