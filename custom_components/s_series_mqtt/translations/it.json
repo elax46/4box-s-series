@@ -1,0 +1,62 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Aggiungi un dispositivo 4box Serie S",
+        "description": "Seleziona la famiglia del dispositivo. Il campo ID dispositivo mostra i dispositivi attualmente online sul tuo broker MQTT ({discovered_count} trovati) in un menu a tendina da cui scegliere, oppure puoi digitarne/incollarne uno manualmente nel formato `modello-MAC`, ad es. `M048B-30AEA4A6D460`. Richiede che l'integrazione MQTT sia già configurata.",
+        "data": {
+          "device_type": "Famiglia di dispositivi",
+          "device_id": "ID dispositivo (formato: modello-MAC, ad es. M048B-30AEA4A6D460)",
+          "name": "Nome personalizzato (opzionale)"
+        }
+      },
+      "relay": {
+        "title": "Opzioni relè / presa",
+        "data": {
+          "channels": "Numero di canali relè",
+          "has_energy": "Il dispositivo ha un misuratore di energia",
+          "energy_poll_interval": "Intervallo di aggiornamento energia (secondi)",
+          "has_led": "Il dispositivo ha un LED indicatore (sperimentale, sola lettura)"
+        }
+      },
+      "motor": {
+        "title": "Opzioni tapparelle motorizzate",
+        "data": {
+          "has_tilt": "Il dispositivo supporta l'inclinazione (frangisole/tende)"
+        }
+      },
+      "push": {
+        "title": "Opzioni Uniko Push",
+        "data": {
+          "pulse_duration_ms": "Durata predefinita impulso (ms)"
+        }
+      },
+      "thermostat": {
+        "title": "Opzioni termostato",
+        "data": {
+          "thermostat_poll_interval": "Intervallo di aggiornamento (secondi)",
+          "thermostat_profiles": "Profili setpoint (opzionale, formato: Nome:valore,Nome:valore, ad es. Eco:901,Comfort:902)"
+        }
+      }
+    },
+    "error": {
+      "invalid_device_id": "L'ID del dispositivo non sembra valido. Non deve contenere spazi o barre."
+    },
+    "abort": {
+      "already_configured": "Questo dispositivo è già configurato."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "energy_poll_interval": "Intervallo di aggiornamento energia (secondi)",
+          "has_led": "Il dispositivo ha un LED indicatore (sperimentale, sola lettura)",
+          "pulse_duration_ms": "Durata predefinita impulso (ms)",
+          "thermostat_poll_interval": "Intervallo di aggiornamento (secondi)",
+          "thermostat_profiles": "Profili setpoint (opzionale, formato: Nome:valore,Nome:valore, ad es. Eco:901,Comfort:902)"
+        }
+      }
+    }
+  }
+}

@@ -1,4 +1,14 @@
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/elax46/4box-s-series?style=for-the-badge)](https://github.com/elax46/4box-s-series/releases/latest)
+[![MIT License][mit-shield]][mit-license]
+![GitHub last commit](https://img.shields.io/github/last-commit/elax46/4box-s-series?style=for-the-badge)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?style=for-the-badge&logo=buymeacoffee&logoColor=white)](https://www.buymeacoffee.com/elax46)
+[![Coverage](https://img.shields.io/codecov/c/github/elax46/4box-s-series?style=for-the-badge)](https://codecov.io/gh/elax46/4box-s-series)
+[mit-license]: https://opensource.org/licenses/MIT
+[mit-shield]: https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge
+
 # HA Custom Integration: 4box S Series
+
+![logo](https://res.cloudinary.com/dcongin7u/image/upload/v1786703881/cover_ooeehp.jpg)
 
 A native Home Assistant integration for **Finder / 4box "S Series"** MQTT
 devices, covering all four device families documented in the vendor's MQTT
@@ -53,6 +63,10 @@ integration to subscribe to.
 ## Installation
 
 ### Via HACS (recommended once published)
+
+We recommend installing Custom brand icons card via [Home Assistant Community Store](https://hacs.xyz)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=elax46&repository=4box-s-series&category=integration)
+
 
 1. HACS → Integrations → the "⋮" menu → *Custom repositories* → add this
    repository URL with category *Integration*.
