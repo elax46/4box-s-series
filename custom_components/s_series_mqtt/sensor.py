@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import ClassVar
 
 from homeassistant.components import mqtt
 from homeassistant.components.sensor import (
@@ -258,7 +259,11 @@ class SSeriesLedChannelSensor(SensorEntity):
     _attr_native_unit_of_measurement = None
     _attr_icon = "mdi:palette"
 
-    _TOPIC_BY_CHANNEL = {"r": TOPIC_LED_R, "g": TOPIC_LED_G, "b": TOPIC_LED_B}
+    _TOPIC_BY_CHANNEL: ClassVar[dict[str, str]] = {
+    "r": TOPIC_LED_R,
+    "g": TOPIC_LED_G,
+    "b": TOPIC_LED_B,
+}
 
     def __init__(self, device_id: str, channel: str, label: str) -> None:
         self._device_id = device_id
