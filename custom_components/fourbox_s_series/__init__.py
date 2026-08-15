@@ -7,11 +7,8 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import (
-    CMD_GPIOSTATUS_GET,
     CONF_CHANNELS,
     CONF_DEVICE_ID,
     CONF_DEVICE_TYPE,
@@ -34,11 +31,11 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import (
-    RequestResponsePoller,
     SSeriesEnergyCoordinator,
+    SSeriesRelayStateRefresher,
     SSeriesThermostatCoordinator,
 )
-from .utils import parse_gpio_status, parse_thermostat_profiles
+from .utils import parse_thermostat_profiles
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,13 +62,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry_data["channels"] = options.get(CONF_CHANNELS, DEFAULT_CHANNELS)
         entry_data["has_led"] = options.get(CONF_HAS_LED, DEFAULT_HAS_LED)
 
-        # Fetch the current relay state right now instead of waiting for
-        # the device's next spontaneous /stat push (which may not come
-        # for a while, since it appears not to publish that topic
-        # retained -- see const.py's CMD_GPIOSTATUS_GET docstring).
-        entry_data["initial_relay_states"] = await _async_fetch_initial_relay_states(
-            hass, device_id, entry_data["channels"]
-        )
+        # Keeps switch state correct by re-querying gpiostatus=GET every
+        # time the device announces itself online via its retained
+        # <ID>/connect birth message -- including immediately at setup
+        # (the retained message fires right away) AND on every future
+        # reconnect, not just once with a fixed timeout window. See
+        # SSeriesRelayStateRefresher's docstring for why this replaced an
+        # earlier one-shot-fetch-at-setup design.
+        refresher = SSeriesRelayStateRefresher(hass, device_id, entry_data["channels"])
+        await refresher.async_start()
+        entry_data["relay_state_refresher"] = refresher
 
         if options.get(CONF_HAS_ENERGY, True):
             poll_interval = options.get(
@@ -146,59 +146,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # next time they touch this entry (reload, Configure, etc.).
         entry_data = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
         if entry_data is not None:
+            refresher = entry_data.get("relay_state_refresher")
+            if refresher is not None:
+                await refresher.async_stop()
             for key in ("energy_coordinator", "thermostat_coordinator"):
                 coordinator = entry_data.get(key)
                 if coordinator is not None:
                     await coordinator.async_stop()
     return unload_ok
-
-
-async def _async_fetch_initial_relay_states(
-    hass: HomeAssistant, device_id: str, channels: int
-) -> dict[int, bool]:
-    """One-shot `gpiostatus=GET` query so switches show the right state
-    immediately on first setup / HA restart / entry reload, instead of
-    only after the relay's next physical toggle.
-
-    Failures (device offline, unparsable response, timeout) are logged
-    and swallowed rather than blocking setup: the switch will simply fall
-    back to its old "unknown until first push" behavior for that device,
-    which is a graceful degradation, not a hard failure.
-    """
-    poller = RequestResponsePoller(hass, device_id)
-    try:
-        await poller.async_start()
-    except HomeAssistantError as err:
-        # Can happen at Home Assistant startup if this entry's setup
-        # races ahead of the MQTT integration actually finishing its own
-        # connection (declaring "mqtt" as a manifest dependency only
-        # guarantees the *component* loads first, not that a broker
-        # connection is already live). Treat exactly like any other
-        # failure to fetch the initial state: log and move on, don't
-        # abort the whole entry's setup over a one-shot convenience query.
-        _LOGGER.warning(
-            "Could not subscribe to fetch initial relay state for %s (%s); "
-            "switches will show as off until the device's next state change",
-            device_id,
-            err,
-        )
-        return {}
-    try:
-        response = await poller.async_request(CMD_GPIOSTATUS_GET)
-    except UpdateFailed as err:
-        _LOGGER.warning(
-            "Could not fetch initial relay state for %s (%s); switches will "
-            "show as off until the device's next state change",
-            device_id,
-            err,
-        )
-        return {}
-    finally:
-        await poller.async_stop()
-
-    states = parse_gpio_status(response, channels)
-    if not states:
-        _LOGGER.debug(
-            "Unrecognized gpiostatus=GET response for %s: %r", device_id, response
-        )
-    return states

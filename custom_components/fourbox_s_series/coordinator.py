@@ -27,17 +27,23 @@ from typing import Any
 
 from homeassistant.components import mqtt
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+    CMD_GPIOSTATUS_GET,
     CMD_HUMIDITY_GET,
     CMD_SETPOINT_GET,
     CMD_TEMPERATURE_GET,
     CMD_THERMOSTAT_MODE_GET,
     DEFAULT_MQTT_RESPONSE_TIMEOUT,
+    DOMAIN,
     TOPIC_CMND,
+    TOPIC_CONNECT,
     TOPIC_INFO,
 )
+from .utils import parse_gpio_status
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -206,3 +212,97 @@ class SSeriesThermostatCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_send_command(self, payload: str) -> None:
         """Fire-and-forget a write command (mode/setpoint change)."""
         await mqtt.async_publish(self.hass, self._poller.cmnd_topic, payload)
+
+
+def relay_states_signal(device_id: str) -> str:
+    """Dispatcher signal name carrying a device's freshly re-fetched
+    relay states (see SSeriesRelayStateRefresher)."""
+    return f"{DOMAIN}_relay_states_{device_id}"
+
+
+class SSeriesRelayStateRefresher:
+    """Keeps relay switch state correct by re-querying `gpiostatus=GET`
+    every time the device announces itself online via its `<ID>/connect`
+    birth message.
+
+    That birth message is published retained, so subscribing to it here
+    fires immediately with whatever the device's current online/offline
+    status already is -- including right at Home Assistant startup, no
+    separate "initial fetch" step needed. It also fires again on every
+    *future* reconnect (Wi-Fi drop, power cycle, or a brand-new device
+    that's still finishing its own MQTT connection when this integration
+    is first set up), which a one-shot fetch with a fixed timeout could
+    never do.
+
+    This replaces an earlier design where the initial state was fetched
+    exactly once, synchronously, during `async_setup_entry`, with a fixed
+    10s timeout: if the device wasn't actually online yet within that
+    window (very plausible for a device that was *just* configured with
+    MQTT settings in the vendor app), the fetch silently failed and the
+    switch stayed wrong until the user manually reloaded the integration.
+    """
+
+    def __init__(self, hass: HomeAssistant, device_id: str, channels: int) -> None:
+        self.hass = hass
+        self._device_id = device_id
+        self._channels = channels
+        self._connect_topic = TOPIC_CONNECT.format(id=device_id)
+        self._unsub_connect = None
+
+    async def async_start(self) -> None:
+        """Subscribe to `<ID>/connect`.
+
+        If MQTT itself isn't ready yet (a startup race, not specific to
+        this device), log and skip rather than raise: the switch will
+        simply stay in its default "unknown until first push" state for
+        this device, a graceful degradation rather than aborting setup
+        of the whole entry over it.
+        """
+        try:
+            self._unsub_connect = await mqtt.async_subscribe(
+                self.hass, self._connect_topic, self._handle_connect
+            )
+        except HomeAssistantError as err:
+            _LOGGER.warning(
+                "Could not subscribe for relay state refresh on %s (%s); "
+                "switches will show as off until the device's next state "
+                "change or an integration reload",
+                self._device_id,
+                err,
+            )
+
+    async def async_stop(self) -> None:
+        if self._unsub_connect is not None:
+            self._unsub_connect()
+            self._unsub_connect = None
+
+    @callback
+    def _handle_connect(self, msg) -> None:
+        if msg.payload.strip().lower() != "true":
+            return
+        self.hass.async_create_task(self._async_refresh())
+
+    async def _async_refresh(self) -> None:
+        poller = RequestResponsePoller(self.hass, self._device_id)
+        await poller.async_start()
+        try:
+            response = await poller.async_request(CMD_GPIOSTATUS_GET)
+        except UpdateFailed as err:
+            _LOGGER.debug(
+                "gpiostatus=GET refresh failed for %s (%s)", self._device_id, err
+            )
+            return
+        finally:
+            await poller.async_stop()
+
+        states = parse_gpio_status(response, self._channels)
+        if states:
+            async_dispatcher_send(
+                self.hass, relay_states_signal(self._device_id), states
+            )
+        else:
+            _LOGGER.debug(
+                "Unrecognized gpiostatus=GET response for %s: %r",
+                self._device_id,
+                response,
+            )

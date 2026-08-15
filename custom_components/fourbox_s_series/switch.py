@@ -8,10 +8,12 @@ from homeassistant.components import mqtt
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, MANUFACTURER, TOPIC_CMND, TOPIC_CONNECT, TOPIC_RELAY_STATE
+from .coordinator import relay_states_signal
 from .utils import build_action_payload, model_from_device_id
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,46 +26,32 @@ async def async_setup_entry(
     entry_data = hass.data[DOMAIN][entry.entry_id]
     device_id: str = entry_data["device_id"]
     channels: int = entry_data["channels"]
-    initial_states: dict[int, bool] = entry_data.get("initial_relay_states", {})
 
     entities = [
-        SSeriesRelaySwitch(device_id, channels, channel, initial_states.get(channel))
+        SSeriesRelaySwitch(device_id, channels, channel)
         for channel in range(1, channels + 1)
     ]
     async_add_entities(entities)
 
 
 class SSeriesRelaySwitch(SwitchEntity):
-    """A single relay channel, driven purely by MQTT push state."""
+    """A single relay channel, driven by MQTT push state plus periodic
+    reconnect-triggered refreshes (see SSeriesRelayStateRefresher)."""
 
     _attr_should_poll = False
     _attr_has_entity_name = True
 
-    def __init__(
-        self,
-        device_id: str,
-        total_channels: int,
-        channel: int,
-        initial_state: bool | None = None,
-    ) -> None:
+    def __init__(self, device_id: str, total_channels: int, channel: int) -> None:
         self._device_id = device_id
         self._total_channels = total_channels
         self._channel = channel
 
         self._attr_unique_id = f"{device_id}_relay_{channel}"
         self._attr_name = "Socket" if total_channels == 1 else f"Channel {channel}"
-
-        if initial_state is not None:
-            # We got a real answer from gpiostatus=GET at setup time, so
-            # trust it immediately rather than waiting for the device's
-            # next spontaneous /stat push (see __init__.py).
-            self._attr_is_on = initial_state
-            self._attr_available = True
-        else:
-            # Fell back to the old behavior: unknown/unavailable until the
-            # first /stat or /connect message arrives.
-            self._attr_is_on = False
-            self._attr_available = False
+        # Unknown until the first /stat push, /connect-triggered refresh,
+        # or /connect availability message arrives.
+        self._attr_is_on = False
+        self._attr_available = False
 
         self._cmnd_topic = TOPIC_CMND.format(id=device_id)
         self._state_topic = TOPIC_RELAY_STATE.format(id=device_id, channel=channel)
@@ -77,7 +65,7 @@ class SSeriesRelaySwitch(SwitchEntity):
         )
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to relay state and device availability topics."""
+        """Subscribe to relay state, availability, and refresh signals."""
 
         @callback
         def state_received(msg) -> None:
@@ -89,11 +77,29 @@ class SSeriesRelaySwitch(SwitchEntity):
             self._attr_available = msg.payload.strip().lower() == "true"
             self.async_write_ha_state()
 
+        @callback
+        def relay_states_updated(states: dict[int, bool]) -> None:
+            """Handle a fresh gpiostatus=GET result from
+            SSeriesRelayStateRefresher, fired whenever the device
+            announces itself online (at setup and on every reconnect).
+            """
+            if self._channel in states:
+                self._attr_is_on = states[self._channel]
+                self._attr_available = True
+                self.async_write_ha_state()
+
         self.async_on_remove(
             await mqtt.async_subscribe(self.hass, self._state_topic, state_received)
         )
         self.async_on_remove(
             await mqtt.async_subscribe(self.hass, self._connect_topic, connect_received)
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                relay_states_signal(self._device_id),
+                relay_states_updated,
+            )
         )
 
     async def async_turn_on(self, **kwargs) -> None:
