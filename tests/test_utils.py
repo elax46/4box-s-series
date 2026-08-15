@@ -21,7 +21,12 @@ from pathlib import Path
 # Import directly from the package folder without needing Home Assistant
 # installed or the package installed in site-packages.
 sys.path.insert(
-    0, str(Path(__file__).resolve().parent.parent / "custom_components" / "s_series_mqtt")
+    0,
+    str(
+        Path(__file__).resolve().parent.parent
+        / "custom_components"
+        / "fourbox_s_series"
+    ),
 )
 
 from utils import (  # noqa: E402
@@ -113,9 +118,9 @@ class TestParseGpioStatus:
         assert parse_gpio_status(self.REAL_OFF_PAYLOAD, channels=1) == {1: False}
 
     def test_led_color_does_not_affect_relay_parsing(self):
-        assert parse_gpio_status(
-            self.REAL_OFF_PAYLOAD_WITH_LED_COLOR, channels=1
-        ) == {1: False}
+        assert parse_gpio_status(self.REAL_OFF_PAYLOAD_WITH_LED_COLOR, channels=1) == {
+            1: False
+        }
 
     def test_hypothetical_two_channel_format(self):
         # Not yet confirmed against real M053B dual-light hardware --
@@ -123,8 +128,7 @@ class TestParseGpioStatus:
         # the device follows the same convention as the single-channel
         # devices already verified.
         payload = (
-            "LED1_R:0;LED1_G:0;LED1_B:0;RELAY1:ON;RELAY2:OFF;"
-            "SW1_DC:PULL;SW1_AC:PULL;"
+            "LED1_R:0;LED1_G:0;LED1_B:0;RELAY1:ON;RELAY2:OFF;SW1_DC:PULL;SW1_AC:PULL;"
         )
         assert parse_gpio_status(payload, channels=2) == {1: True, 2: False}
 
@@ -165,9 +169,10 @@ class TestParseThermostatProfiles:
         assert parse_thermostat_profiles("garbage, no colons here") == []
 
     def test_malformed_entries_are_skipped_not_fatal(self):
-        assert parse_thermostat_profiles(
-            "Eco:901,,Comfort:902, :novalue,NoValue:"
-        ) == [("Eco", "901"), ("Comfort", "902")]
+        assert parse_thermostat_profiles("Eco:901,,Comfort:902, :novalue,NoValue:") == [
+            ("Eco", "901"),
+            ("Comfort", "902"),
+        ]
 
     def test_whitespace_is_trimmed(self):
         assert parse_thermostat_profiles("  Eco : 901 , Comfort : 902  ") == [

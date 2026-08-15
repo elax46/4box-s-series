@@ -17,7 +17,7 @@ from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
-from custom_components.s_series_mqtt.const import (
+from custom_components.fourbox_s_series.const import (
     CONF_CHANNELS,
     CONF_DEVICE_ID,
     CONF_DEVICE_TYPE,
@@ -32,7 +32,7 @@ def mock_setup_entry():
     """Avoid actually setting up the integration (starting MQTT pollers,
     etc.) while testing the config flow in isolation."""
     with patch(
-        "custom_components.s_series_mqtt.async_setup_entry", return_value=True
+        "custom_components.fourbox_s_series.async_setup_entry", return_value=True
     ):
         yield
 
@@ -147,7 +147,7 @@ async def test_discovery_finds_devices_announced_via_connect(
     # Patch the scan's sleep so the test doesn't actually wait 2 real
     # seconds, and fire the discovery message during that "window".
     with patch(
-        "custom_components.s_series_mqtt.config_flow.asyncio.sleep",
+        "custom_components.fourbox_s_series.config_flow.asyncio.sleep",
         side_effect=_fire_during_scan,
     ):
         result = await hass.config_entries.flow.async_init(

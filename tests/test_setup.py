@@ -19,8 +19,8 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from custom_components.s_series_mqtt import async_unload_entry
-from custom_components.s_series_mqtt.const import (
+from custom_components.fourbox_s_series import async_unload_entry
+from custom_components.fourbox_s_series.const import (
     CONF_CHANNELS,
     CONF_DEVICE_ID,
     CONF_DEVICE_TYPE,
