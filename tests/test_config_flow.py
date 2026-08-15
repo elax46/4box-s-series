@@ -199,7 +199,7 @@ async def test_discovery_failure_falls_back_to_manual_entry(
     """If the MQTT scan itself raises (e.g. MQTT not ready yet), the flow
     must still show a usable manual-entry form rather than crashing."""
     with patch(
-        "custom_components.s_series_mqtt.config_flow.mqtt.async_subscribe",
+        "custom_components.fourbox_s_series.config_flow.mqtt.async_subscribe",
         side_effect=RuntimeError("boom"),
     ):
         result = await hass.config_entries.flow.async_init(
