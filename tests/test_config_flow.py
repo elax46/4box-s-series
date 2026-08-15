@@ -177,7 +177,7 @@ async def test_discovery_excludes_offline_devices(
         async_fire_mqtt_message(hass, "M048D-901506BADF40/connect", "false")
 
     with patch(
-        "custom_components.s_series_mqtt.config_flow.asyncio.sleep",
+        "custom_components.fourbox_s_series.config_flow.asyncio.sleep",
         side_effect=_fire_during_scan,
     ):
         result = await hass.config_entries.flow.async_init(
