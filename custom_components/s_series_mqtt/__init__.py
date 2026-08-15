@@ -7,6 +7,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import (
@@ -80,7 +81,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 hass, device_id, entry_data["channels"], poll_interval
             )
             await coordinator.async_start()
-            await coordinator.async_config_entry_first_refresh()
+            # Use async_refresh(), NOT async_config_entry_first_refresh():
+            # the latter raises ConfigEntryNotReady on failure, which
+            # would abort setup of the ENTIRE device (switch included)
+            # just because the energy counter's one-shot query timed
+            # out. Energy is a supplementary sensor, not something the
+            # rest of the entry depends on -- a failed first poll should
+            # leave the energy sensor "unknown" and retry on the next
+            # scheduled interval, not block everything else.
+            await coordinator.async_refresh()
             entry_data["energy_coordinator"] = coordinator
 
     elif device_type == DEVICE_TYPE_MOTOR:
@@ -97,7 +106,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         coordinator = SSeriesThermostatCoordinator(hass, device_id, poll_interval)
         await coordinator.async_start()
-        await coordinator.async_config_entry_first_refresh()
+        # Same reasoning as the energy coordinator above: don't let a
+        # slow/failed first poll abort setup of the whole entry. For the
+        # thermostat this matters even more, since ALL of its state is
+        # polled -- a temporary MQTT hiccup on first setup shouldn't make
+        # the entire climate entity unavailable-and-retrying.
+        await coordinator.async_refresh()
         entry_data["thermostat_coordinator"] = coordinator
         entry_data["thermostat_profiles"] = parse_thermostat_profiles(
             options.get(CONF_THERMOSTAT_PROFILES, "")
@@ -124,11 +138,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, platforms)
     if unload_ok:
-        entry_data = hass.data[DOMAIN].pop(entry.entry_id)
-        for key in ("energy_coordinator", "thermostat_coordinator"):
-            coordinator = entry_data.get(key)
-            if coordinator is not None:
-                await coordinator.async_stop()
+        # `.pop(..., None)`, not `.pop(...)`: if a previous setup attempt
+        # failed before reaching `hass.data[DOMAIN][entry.entry_id] = ...`
+        # (e.g. it raised before that point), there's nothing to pop --
+        # and popping unconditionally would raise KeyError here, which
+        # surfaces to the user as an unhandled-exception 500 error the
+        # next time they touch this entry (reload, Configure, etc.).
+        entry_data = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        if entry_data is not None:
+            for key in ("energy_coordinator", "thermostat_coordinator"):
+                coordinator = entry_data.get(key)
+                if coordinator is not None:
+                    await coordinator.async_stop()
     return unload_ok
 
 
@@ -145,7 +166,23 @@ async def _async_fetch_initial_relay_states(
     which is a graceful degradation, not a hard failure.
     """
     poller = RequestResponsePoller(hass, device_id)
-    await poller.async_start()
+    try:
+        await poller.async_start()
+    except HomeAssistantError as err:
+        # Can happen at Home Assistant startup if this entry's setup
+        # races ahead of the MQTT integration actually finishing its own
+        # connection (declaring "mqtt" as a manifest dependency only
+        # guarantees the *component* loads first, not that a broker
+        # connection is already live). Treat exactly like any other
+        # failure to fetch the initial state: log and move on, don't
+        # abort the whole entry's setup over a one-shot convenience query.
+        _LOGGER.warning(
+            "Could not subscribe to fetch initial relay state for %s (%s); "
+            "switches will show as off until the device's next state change",
+            device_id,
+            err,
+        )
+        return {}
     try:
         response = await poller.async_request(CMD_GPIOSTATUS_GET)
     except UpdateFailed as err:

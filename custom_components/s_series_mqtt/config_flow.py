@@ -238,15 +238,27 @@ class SSeriesMqttConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> SSeriesMqttOptionsFlow:
-        """Get the options flow for this handler."""
-        return SSeriesMqttOptionsFlow(config_entry)
+        """Get the options flow for this handler.
+
+        `config_entry` is unused directly here: the framework binds it to
+        the returned flow instance automatically (see
+        `SSeriesMqttOptionsFlow`'s docstring), no manual wiring needed.
+        """
+        return SSeriesMqttOptionsFlow()
 
 
 class SSeriesMqttOptionsFlow(config_entries.OptionsFlow):
-    """Options flow: adjust the poll interval / pulse duration after setup."""
+    """Options flow: adjust the poll interval / pulse duration after setup.
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
+    Deliberately does NOT define `__init__` / store `config_entry` itself:
+    modern Home Assistant (>=2024.12-ish) exposes `self.config_entry` as a
+    read-only property populated automatically by the framework once the
+    flow is attached. The older pattern of manually assigning
+    `self.config_entry = config_entry` in `__init__` was deprecated, then
+    the setter was removed entirely -- doing it now raises
+    `AttributeError: property 'config_entry' ... has no setter`, which is
+    exactly what surfaced as a 500 error when opening this flow.
+    """
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
