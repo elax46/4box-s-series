@@ -1,5 +1,5 @@
 {
-  "domain": "s_series_mqtt",
+  "domain": "4box_s_series",
   "name": "4box S Series",
   "codeowners": [
     "@elax46"

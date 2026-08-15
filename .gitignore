@@ -3,3 +3,4 @@ custom_components/.DS_Store
 /.venv-test/bin/__pycache__
 /.venv-test
 /tests/__pycache__
+/custom_components/4box_s_series/__pycache__
