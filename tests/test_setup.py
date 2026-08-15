@@ -74,7 +74,7 @@ async def test_setup_succeeds_even_when_energy_query_times_out(
     # so it will time out. Speed that up so the test doesn't burn 10 real
     # seconds (DEFAULT_MQTT_RESPONSE_TIMEOUT) waiting for it.
     with patch(
-        "custom_components.s_series_mqtt.coordinator.DEFAULT_MQTT_RESPONSE_TIMEOUT",
+        "custom_components.fourbox_s_series.coordinator.DEFAULT_MQTT_RESPONSE_TIMEOUT",
         0.05,
     ):
         assert await hass.config_entries.async_setup(entry.entry_id)
@@ -187,7 +187,7 @@ async def test_setup_succeeds_when_mqtt_subscribe_race_at_startup(
     entry.add_to_hass(hass)
 
     with patch(
-        "custom_components.s_series_mqtt.RequestResponsePoller.async_start",
+        "custom_components.fourbox_s_series.coordinator.RequestResponsePoller.async_start",
         side_effect=HomeAssistantError(
             'Cannot subscribe to topic "M048D-901506BADF40/info", '
             "make sure MQTT is set up correctly"
