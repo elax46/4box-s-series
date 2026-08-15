@@ -40,7 +40,7 @@ jobs:
 
       - name: Update manifest.json Version
         run: |
-          MANIFEST="custom_components/4box_s_series/manifest.json"
+          MANIFEST="custom_components/fourbox_s_series/manifest.json"
           VERSION="${{ steps.vars.outputs.tag }}"
           
           jq --arg v "$VERSION" '.version = $v' "$MANIFEST" > tmp.json && mv tmp.json "$MANIFEST"
@@ -50,7 +50,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add custom_components/4box_s_series/manifest.json
+          git add custom_components/fourbox_s_series/manifest.json
           if ! git diff --staged --quiet; then
             git commit -m "chore(release): update manifest.json to ${{ steps.vars.outputs.tag }}"
             git push origin HEAD:${{ github.ref_name }}
@@ -59,15 +59,15 @@ jobs:
       - name: Create Zip Package (Rooted contents)
         run: |
           # Entriamo DENTRO la cartella dell'integrazione così lo zip conterrà i file direttamente nella radice
-          cd custom_components/4box_s_series
-          zip -r ../../4box_s_series.zip .
+          cd custom_components/fourbox_s_series
+          zip -r ../../fourbox_s_series.zip .
           cd ../..
 
-          if [ ! -f 4box_s_series.zip ]; then
-            echo "❌ File 4box_s_series.zip non trovato!"
+          if [ ! -f fourbox_s_series.zip ]; then
+            echo "❌ File fourbox_s_series.zip non trovato!"
             exit 1
           fi
-          echo "✅ Pacchetto 4box_s_series.zip creato con successo."
+          echo "✅ Pacchetto fourbox_s_series.zip creato con successo."
 
       - name: Extract Commit Log
         id: log_summary
@@ -101,11 +101,10 @@ jobs:
             echo "${{ steps.log_summary.outputs.SUMMARY }}"
             echo ""
             echo "### 📦 Manual Installation"
-            echo "Download \`4box_s_series.zip\`, extract it, and copy the contents into your Home Assistant \`config/custom_components/4box_s_series/\` directory."
+            echo "Download \`fourbox_s_series.zip\`, extract it, and copy the contents into your Home Assistant \`config/custom_components/fourbox_s_series/\` directory."
             echo ""
             echo 'EOF'
           } >> $GITHUB_OUTPUT
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -114,4 +113,4 @@ jobs:
           body: ${{ steps.body.outputs.BODY }}
           generate_release_notes: true
           make_latest: true
-          files: 4box_s_series.zip
+          files: fourbox_s_series.zip
