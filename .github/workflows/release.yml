@@ -40,7 +40,7 @@ jobs:
 
       - name: Update manifest.json Version
         run: |
-          MANIFEST="custom_components/s_series_mqtt/manifest.json"
+          MANIFEST="custom_components/4box_s_series/manifest.json"
           VERSION="${{ steps.vars.outputs.tag }}"
           
           jq --arg v "$VERSION" '.version = $v' "$MANIFEST" > tmp.json && mv tmp.json "$MANIFEST"
@@ -50,7 +50,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add custom_components/s_series_mqtt/manifest.json
+          git add custom_components/4box_s_series/manifest.json
           if ! git diff --staged --quiet; then
             git commit -m "chore(release): update manifest.json to ${{ steps.vars.outputs.tag }}"
             git push origin HEAD:${{ github.ref_name }}
@@ -59,7 +59,7 @@ jobs:
       - name: Create Zip Package (Rooted contents)
         run: |
           # Entriamo DENTRO la cartella dell'integrazione così lo zip conterrà i file direttamente nella radice
-          cd custom_components/s_series_mqtt
+          cd custom_components/4box_s_series
           zip -r ../../4box_s_series.zip .
           cd ../..
 
@@ -101,7 +101,7 @@ jobs:
             echo "${{ steps.log_summary.outputs.SUMMARY }}"
             echo ""
             echo "### 📦 Manual Installation"
-            echo "Download \`4box_s_series.zip\`, extract it, and copy the contents into your Home Assistant \`config/custom_components/s_series_mqtt/\` directory."
+            echo "Download \`4box_s_series.zip\`, extract it, and copy the contents into your Home Assistant \`config/custom_components/4box_s_series/\` directory."
             echo ""
             echo 'EOF'
           } >> $GITHUB_OUTPUT

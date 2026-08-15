@@ -14,6 +14,6 @@ jobs:
       - name: Install Ruff
         run: pip install ruff
       - name: Run Ruff Linter
-        run: ruff check custom_components/s_series_mqtt
+        run: ruff check custom_components/4box_s_series
       - name: Run Ruff Format check
-        run: ruff format --check custom_components/s_series_mqtt
+        run: ruff format --check custom_components/4box_s_series
