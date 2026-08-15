@@ -16,7 +16,7 @@ The domain name stays device-family-agnostic ("s_series") so all four
 (and any future ones) live under the same integration and config entries.
 """
 
-DOMAIN = "s_series_mqtt"
+DOMAIN = "fourbox_s_series"
 
 # --- config entry keys ----------------------------------------------------
 CONF_DEVICE_ID = "device_id"

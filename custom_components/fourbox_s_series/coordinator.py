@@ -120,7 +120,7 @@ class SSeriesEnergyCoordinator(DataUpdateCoordinator[dict[int, float]]):
         super().__init__(
             hass,
             _LOGGER,
-            name=f"s_series_mqtt_energy_{device_id}",
+            name=f"fourbox_s_series_energy_{device_id}",
             update_interval=timedelta(seconds=poll_interval),
         )
         self._channels = channels
@@ -163,7 +163,7 @@ class SSeriesThermostatCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         super().__init__(
             hass,
             _LOGGER,
-            name=f"s_series_mqtt_thermostat_{device_id}",
+            name=f"fourbox_s_series_thermostat_{device_id}",
             update_interval=timedelta(seconds=poll_interval),
         )
         self._poller = RequestResponsePoller(hass, device_id)

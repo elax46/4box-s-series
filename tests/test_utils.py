@@ -1,4 +1,4 @@
-"""Unit tests for `custom_components.s_series_mqtt.utils`.
+"""Unit tests for `custom_components.fourbox_s_series.utils`.
 
 These are plain, dependency-free tests (no Home Assistant required) --
 everything in `utils.py` is pure string/data parsing, so it can and

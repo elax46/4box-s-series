@@ -72,7 +72,7 @@ body:
     attributes:
       label: Relevant logs
       description: |
-        Enable debug logging first (Settings → System → Logs → search "s_series_mqtt" → Enable debug logging), reproduce the issue, then paste the relevant log lines here. Logs make MQTT issues much faster to diagnose.
+        Enable debug logging first (Settings → System → Logs → search "fourbox_s_series" → Enable debug logging), reproduce the issue, then paste the relevant log lines here. Logs make MQTT issues much faster to diagnose.
       render: shell
     validations:
       required: false

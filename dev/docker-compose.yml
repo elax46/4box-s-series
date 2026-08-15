@@ -1,4 +1,4 @@
-# Development environment for the s_series_mqtt custom integration.
+# Development environment for the fourbox_s_series custom integration.
 #
 # Usage (from the `dev/` directory):
 #   docker compose up

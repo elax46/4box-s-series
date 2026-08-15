@@ -76,7 +76,7 @@ We recommend installing Custom brand icons card via [Home Assistant Community St
 
 ### Manual
 
-1. Copy `custom_components/s_series_mqtt` into your Home Assistant
+1. Copy `custom_components/fourbox_s_series` into your Home Assistant
    `config/custom_components/` folder.
 2. Restart Home Assistant.
 
@@ -220,7 +220,7 @@ integration's **Configure** button without re-adding the device.
 ## Architecture
 
 ```
-custom_components/s_series_mqtt/
+custom_components/fourbox_s_series/
 ├── __init__.py        # entry setup/teardown; routes device_type -> platforms;
 │                       # fetches initial relay state via gpiostatus=GET
 ├── config_flow.py      # two-step UI flow: family picker, then family options
@@ -342,7 +342,7 @@ validated against a real P40S.
 
 ### 3. Iterate
 
-After editing any file under `custom_components/s_series_mqtt/`, restart
+After editing any file under `custom_components/fourbox_s_series/`, restart
 Home Assistant (`docker compose restart homeassistant`, or Developer
 Tools → YAML → *Restart* from the HA UI).
 
