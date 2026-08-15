@@ -64,8 +64,8 @@ async def async_setup_entry(
 
     entities: list[SensorEntity] = []
     for channel in range(1, channels + 1):
-        entities.append(SSeriesPowerSensor(device_id, channel))
-        entities.append(SSeriesCurrentSensor(device_id, channel))
+        entities.append(SSeriesPowerSensor(device_id, channel, coordinator))
+        entities.append(SSeriesCurrentSensor(device_id, channel, coordinator))
         if coordinator is not None:
             entities.append(SSeriesEnergySensor(coordinator, device_id, channel))
 
@@ -116,29 +116,98 @@ class _SSeriesPushSensorBase(SensorEntity):
         await self._subscribe()
 
 
-class SSeriesPowerSensor(_SSeriesPushSensorBase):
-    """Instantaneous active power for one relay channel."""
+class SSeriesPowerSensor(SensorEntity):
+    """Instantaneous active power for one relay channel.
 
+    Combines two update sources for freshness: the firmware's own
+    spontaneous MQTT push (`/stat/relay/<n>/power/w`) plus periodic
+    active polling via `power=RELAY<n>` (piggybacked on
+    `SSeriesEnergyCoordinator`'s same poll cycle as the energy counter).
+    Push updates alone could go quiet for a long time in practice; the
+    poll acts as a floor so the value is never stuck at "unknown" for
+    longer than one poll interval, while still taking whichever of the
+    two arrives most recently.
+
+    `coordinator` is `None` on devices without energy metering enabled
+    (`has_energy` off) -- in that case this falls back to push-only,
+    exactly like before.
+    """
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.POWER
     _attr_native_unit_of_measurement = UnitOfPower.WATT
     _attr_state_class = SensorStateClass.MEASUREMENT
+    _metric_key = "power"
 
-    def __init__(self, device_id: str, channel: int) -> None:
-        super().__init__(device_id)
+    def __init__(
+        self,
+        device_id: str,
+        channel: int,
+        coordinator: SSeriesEnergyCoordinator | None,
+    ) -> None:
+        self._device_id = device_id
+        self._channel = channel
+        self._coordinator = coordinator
         self._attr_unique_id = f"{device_id}_relay_{channel}_power"
         self._attr_name = "Power" if channel == 1 else f"Power channel {channel}"
         self._topic = TOPIC_RELAY_POWER.format(id=device_id, channel=channel)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_id)},
+            manufacturer=MANUFACTURER,
+            model=model_from_device_id(device_id),
+            name=device_id,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        @callback
+        def push_handler(msg) -> None:
+            try:
+                self._attr_native_value = float(msg.payload)
+            except ValueError:
+                _LOGGER.debug(
+                    "Ignoring non-numeric payload on %s: %r", self._topic, msg.payload
+                )
+                return
+            self.async_write_ha_state()
+
+        self.async_on_remove(
+            await mqtt.async_subscribe(self.hass, self._topic, push_handler)
+        )
+
+        if self._coordinator is not None:
+
+            @callback
+            def coordinator_updated() -> None:
+                channel_data = (self._coordinator.data or {}).get(self._channel, {})
+                if self._metric_key in channel_data:
+                    self._attr_native_value = channel_data[self._metric_key]
+                    self.async_write_ha_state()
+
+            self.async_on_remove(
+                self._coordinator.async_add_listener(coordinator_updated)
+            )
+            # Seed immediately from whatever the coordinator already has
+            # (e.g. after a reload, where a poll may have already run
+            # before this entity was even added).
+            coordinator_updated()
 
 
-class SSeriesCurrentSensor(_SSeriesPushSensorBase):
-    """Instantaneous current for one relay channel."""
+class SSeriesCurrentSensor(SSeriesPowerSensor):
+    """Instantaneous current for one relay channel. See SSeriesPowerSensor
+    for the combined push+poll update strategy this shares."""
 
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
-    _attr_state_class = SensorStateClass.MEASUREMENT
+    _metric_key = "current"
 
-    def __init__(self, device_id: str, channel: int) -> None:
-        super().__init__(device_id)
+    def __init__(
+        self,
+        device_id: str,
+        channel: int,
+        coordinator: SSeriesEnergyCoordinator | None,
+    ) -> None:
+        super().__init__(device_id, channel, coordinator)
         self._attr_unique_id = f"{device_id}_relay_{channel}_current"
         self._attr_name = "Current" if channel == 1 else f"Current channel {channel}"
         self._topic = TOPIC_RELAY_CURRENT.format(id=device_id, channel=channel)
@@ -203,7 +272,7 @@ class SSeriesEnergySensor(CoordinatorEntity[SSeriesEnergyCoordinator], SensorEnt
         """Return the last polled energy value for this channel."""
         if self.coordinator.data is None:
             return None
-        return self.coordinator.data.get(self._channel)
+        return self.coordinator.data.get(self._channel, {}).get("energy")
 
 
 class SSeriesMotorPowerSensor(SensorEntity):

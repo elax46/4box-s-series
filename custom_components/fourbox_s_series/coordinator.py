@@ -113,8 +113,36 @@ class RequestResponsePoller:
             self._pending = None
 
 
-class SSeriesEnergyCoordinator(DataUpdateCoordinator[dict[int, float]]):
-    """Polls energyActive=RELAYn for every channel of one relay device."""
+class SSeriesEnergyCoordinator(DataUpdateCoordinator[dict[int, dict[str, float]]]):
+    """Polls power/current/cumulative-energy for every channel of one
+    relay device, all three of which the vendor guide documents as valid
+    request/response reads (`power=RELAY<n>`, `current=RELAY<n>`,
+    `energyActive=RELAY<n>`, guide section 4.5 -- these all belong to the
+    same "P40 dotati di misura energetica" feature group, matching this
+    coordinator only being created when `has_energy` is enabled).
+
+    Originally this only polled the energy counter, since power/current
+    are *also* pushed spontaneously by the firmware on
+    `<ID>/stat/relay/<n>/power/w` and `.../current/a`. In practice those
+    push messages can be infrequent enough that the power/current
+    sensors sat at "unknown" for a long time with nothing to actively
+    fall back on. Now this coordinator polls all three every cycle
+    (default interval configurable via the same "energy poll interval"
+    option), and `sensor.py`'s Power/Current entities combine both
+    sources: whichever update -- an MQTT push or a poll from here --
+    arrives more recently wins, so values are never stuck longer than
+    one poll interval even on a quiet MQTT connection.
+
+    A single channel's `data` entry is a dict with up to three keys --
+    ``energy``, ``power``, ``current`` -- any of which may be missing if
+    that specific query failed to parse or timed out; one bad metric
+    doesn't blank out the others (matching the thermostat coordinator's
+    same per-key tolerance below). A channel that got *nothing* at all is
+    omitted entirely, and if literally no channel got anything, the whole
+    update raises `UpdateFailed` so `SSeriesEnergySensor`'s
+    `CoordinatorEntity.available` reflects a genuinely unresponsive
+    device rather than silently going stale forever.
+    """
 
     def __init__(
         self,
@@ -138,21 +166,51 @@ class SSeriesEnergyCoordinator(DataUpdateCoordinator[dict[int, float]]):
     async def async_stop(self) -> None:
         await self._poller.async_stop()
 
-    async def _async_query_channel(self, channel: int) -> float:
-        payload = f"energyActive=RELAY{channel}"
-        response = await self._poller.async_request(payload)
+    async def _async_query_metric(self, command: str) -> float | None:
+        try:
+            response = await self._poller.async_request(command)
+        except UpdateFailed as err:
+            _LOGGER.debug(
+                "%s query failed for %s (%s)", command, self._poller.device_id, err
+            )
+            return None
+        finally:
+            await asyncio.sleep(_INTER_QUERY_DELAY)
+
         value = _extract_number(response)
         if value is None:
-            raise UpdateFailed(
-                f"Unexpected energy payload from {self._poller.device_id}: {response!r}"
+            _LOGGER.debug(
+                "Unexpected %s payload from %s: %r",
+                command,
+                self._poller.device_id,
+                response,
             )
         return value
 
-    async def _async_update_data(self) -> dict[int, float]:
-        result: dict[int, float] = {}
+    async def _async_query_channel(self, channel: int) -> dict[str, float]:
+        channel_data: dict[str, float] = {}
+        for key, command in (
+            ("power", f"power=RELAY{channel}"),
+            ("current", f"current=RELAY{channel}"),
+            ("energy", f"energyActive=RELAY{channel}"),
+        ):
+            value = await self._async_query_metric(command)
+            if value is not None:
+                channel_data[key] = value
+        return channel_data
+
+    async def _async_update_data(self) -> dict[int, dict[str, float]]:
+        result: dict[int, dict[str, float]] = {}
         for channel in range(1, self._channels + 1):
-            result[channel] = await self._async_query_channel(channel)
-            await asyncio.sleep(_INTER_QUERY_DELAY)
+            channel_data = await self._async_query_channel(channel)
+            if channel_data:
+                result[channel] = channel_data
+
+        if not result:
+            raise UpdateFailed(
+                f"No relay metrics (power/current/energy) could be read "
+                f"for any channel of {self._poller.device_id}"
+            )
         return result
 
 
