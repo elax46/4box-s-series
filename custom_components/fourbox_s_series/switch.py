@@ -13,7 +13,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, MANUFACTURER, TOPIC_CMND, TOPIC_CONNECT, TOPIC_RELAY_STATE
-from .coordinator import relay_states_signal
+from .coordinator import SSeriesRelayStateRefresher, relay_states_signal
 from .utils import build_action_payload, model_from_device_id
 
 _LOGGER = logging.getLogger(__name__)
@@ -26,9 +26,12 @@ async def async_setup_entry(
     entry_data = hass.data[DOMAIN][entry.entry_id]
     device_id: str = entry_data["device_id"]
     channels: int = entry_data["channels"]
+    refresher: SSeriesRelayStateRefresher | None = entry_data.get(
+        "relay_state_refresher"
+    )
 
     entities = [
-        SSeriesRelaySwitch(device_id, channels, channel)
+        SSeriesRelaySwitch(device_id, channels, channel, refresher)
         for channel in range(1, channels + 1)
     ]
     async_add_entities(entities)
@@ -41,10 +44,17 @@ class SSeriesRelaySwitch(SwitchEntity):
     _attr_should_poll = False
     _attr_has_entity_name = True
 
-    def __init__(self, device_id: str, total_channels: int, channel: int) -> None:
+    def __init__(
+        self,
+        device_id: str,
+        total_channels: int,
+        channel: int,
+        refresher: SSeriesRelayStateRefresher | None,
+    ) -> None:
         self._device_id = device_id
         self._total_channels = total_channels
         self._channel = channel
+        self._refresher = refresher
 
         self._attr_unique_id = f"{device_id}_relay_{channel}"
         self._attr_name = "Socket" if total_channels == 1 else f"Channel {channel}"
@@ -52,6 +62,17 @@ class SSeriesRelaySwitch(SwitchEntity):
         # or /connect availability message arrives.
         self._attr_is_on = False
         self._attr_available = False
+
+        # The refresher's retained-/connect-triggered query can complete
+        # BEFORE this entity even exists (platforms are forwarded after
+        # the refresher starts -- see __init__.py), so its live
+        # dispatcher signal alone can be missed. Seed immediately from
+        # whatever it already cached at construction time as a fallback;
+        # `async_added_to_hass` below still listens for the live signal
+        # too, for any *later* refresh (e.g. a real reconnect).
+        if self._refresher is not None and channel in self._refresher.last_states:
+            self._attr_is_on = self._refresher.last_states[channel]
+            self._attr_available = True
 
         self._cmnd_topic = TOPIC_CMND.format(id=device_id)
         self._state_topic = TOPIC_RELAY_STATE.format(id=device_id, channel=channel)

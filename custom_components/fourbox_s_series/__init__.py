@@ -7,6 +7,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
     CONF_CHANNELS,
@@ -31,6 +32,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import (
+    RequestResponsePoller,
     SSeriesEnergyCoordinator,
     SSeriesRelayStateRefresher,
     SSeriesThermostatCoordinator,
@@ -62,35 +64,71 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry_data["channels"] = options.get(CONF_CHANNELS, DEFAULT_CHANNELS)
         entry_data["has_led"] = options.get(CONF_HAS_LED, DEFAULT_HAS_LED)
 
-        # Keeps switch state correct by re-querying gpiostatus=GET every
-        # time the device announces itself online via its retained
-        # <ID>/connect birth message -- including immediately at setup
-        # (the retained message fires right away) AND on every future
-        # reconnect, not just once with a fixed timeout window. See
-        # SSeriesRelayStateRefresher's docstring for why this replaced an
-        # earlier one-shot-fetch-at-setup design.
-        refresher = SSeriesRelayStateRefresher(hass, device_id, entry_data["channels"])
-        await refresher.async_start()
-        entry_data["relay_state_refresher"] = refresher
+        # ONE shared poller for this device, used by both the relay
+        # state refresher and the energy coordinator below. They must
+        # NOT each create their own: `<ID>/info` answers every command
+        # with no correlation ID, so two independent pollers subscribed
+        # to it at once can steal each other's replies if their requests
+        # overlap in time (which they very much can -- the refresher
+        # fires immediately from the device's retained /connect message,
+        # right as the energy coordinator's own first poll is also
+        # starting). See RequestResponsePoller's docstring.
+        #
+        # If subscribing itself fails (an MQTT-not-ready startup race,
+        # same class of issue the refresher's own subscribe already
+        # tolerates below), degrade gracefully: skip the refresher and
+        # energy coordinator for this device rather than proceeding with
+        # a poller that can never receive a reply and would time out on
+        # every future request. The switch/sensors still work from MQTT
+        # push alone in that case, just without the active-refresh floor,
+        # until the next reload.
+        poller = RequestResponsePoller(hass, device_id)
+        try:
+            await poller.async_start()
+        except HomeAssistantError as err:
+            _LOGGER.warning(
+                "Could not subscribe for %s's shared request/response "
+                "poller (%s); relay state refresh and energy/power/"
+                "current polling are unavailable this session -- entities "
+                "will still update from MQTT push alone",
+                device_id,
+                err,
+            )
+            poller = None
+        entry_data["poller"] = poller
 
-        if options.get(CONF_HAS_ENERGY, True):
-            poll_interval = options.get(
-                CONF_ENERGY_POLL_INTERVAL, DEFAULT_ENERGY_POLL_INTERVAL
+        if poller is not None:
+            # Keeps switch state correct by re-querying gpiostatus=GET
+            # every time the device announces itself online via its
+            # retained <ID>/connect birth message -- including
+            # immediately at setup (the retained message fires right
+            # away) AND on every future reconnect, not just once with a
+            # fixed timeout window. See SSeriesRelayStateRefresher's
+            # docstring for why this replaced an earlier
+            # one-shot-fetch-at-setup design.
+            refresher = SSeriesRelayStateRefresher(
+                hass, device_id, entry_data["channels"], poller
             )
-            coordinator = SSeriesEnergyCoordinator(
-                hass, device_id, entry_data["channels"], poll_interval
-            )
-            await coordinator.async_start()
-            # Use async_refresh(), NOT async_config_entry_first_refresh():
-            # the latter raises ConfigEntryNotReady on failure, which
-            # would abort setup of the ENTIRE device (switch included)
-            # just because the energy counter's one-shot query timed
-            # out. Energy is a supplementary sensor, not something the
-            # rest of the entry depends on -- a failed first poll should
-            # leave the energy sensor "unknown" and retry on the next
-            # scheduled interval, not block everything else.
-            await coordinator.async_refresh()
-            entry_data["energy_coordinator"] = coordinator
+            await refresher.async_start()
+            entry_data["relay_state_refresher"] = refresher
+
+            if options.get(CONF_HAS_ENERGY, True):
+                poll_interval = options.get(
+                    CONF_ENERGY_POLL_INTERVAL, DEFAULT_ENERGY_POLL_INTERVAL
+                )
+                coordinator = SSeriesEnergyCoordinator(
+                    hass, device_id, entry_data["channels"], poll_interval, poller
+                )
+                # Use async_refresh(), NOT async_config_entry_first_refresh():
+                # the latter raises ConfigEntryNotReady on failure, which
+                # would abort setup of the ENTIRE device (switch included)
+                # just because the energy counter's one-shot query timed
+                # out. Energy is a supplementary sensor, not something the
+                # rest of the entry depends on -- a failed first poll should
+                # leave the energy sensor "unknown" and retry on the next
+                # scheduled interval, not block everything else.
+                await coordinator.async_refresh()
+                entry_data["energy_coordinator"] = coordinator
 
     elif device_type == DEVICE_TYPE_MOTOR:
         entry_data["has_tilt"] = options.get(CONF_HAS_TILT, True)
@@ -149,8 +187,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             refresher = entry_data.get("relay_state_refresher")
             if refresher is not None:
                 await refresher.async_stop()
-            for key in ("energy_coordinator", "thermostat_coordinator"):
-                coordinator = entry_data.get(key)
-                if coordinator is not None:
-                    await coordinator.async_stop()
+            # The shared poller (relay devices only) is stopped once
+            # here, after the refresher that uses it -- the energy
+            # coordinator no longer owns/stops it separately, since it
+            # doesn't own it in the first place (see async_setup_entry).
+            poller = entry_data.get("poller")
+            if poller is not None:
+                await poller.async_stop()
+            thermostat_coordinator = entry_data.get("thermostat_coordinator")
+            if thermostat_coordinator is not None:
+                await thermostat_coordinator.async_stop()
     return unload_ok

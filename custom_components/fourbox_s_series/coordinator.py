@@ -60,7 +60,21 @@ def _extract_number(response: str) -> float | None:
 
 
 class RequestResponsePoller:
-    """Shared plumbing for `/cmnd` request -> `/info` response polling."""
+    """Shared plumbing for `/cmnd` request -> `/info` response polling.
+
+    One instance is meant to be shared by every feature that needs to
+    query a given device (see `__init__.py`, where a single poller is
+    created per relay device and passed into both
+    `SSeriesEnergyCoordinator` and `SSeriesRelayStateRefresher`) rather
+    than each owning an independent instance. `<ID>/info` is a single
+    topic answering *every* command on that device with no correlation
+    ID, so two independent pollers subscribed to it at once can steal
+    each other's responses -- whichever reply arrives first resolves
+    BOTH pollers' pending requests, corrupting whichever one didn't
+    actually ask for it. An internal lock serializes `async_request()`
+    calls even from multiple concurrent callers sharing this same
+    instance, so there is only ever one request in flight at a time.
+    """
 
     def __init__(self, hass: HomeAssistant, device_id: str) -> None:
         self.hass = hass
@@ -69,6 +83,7 @@ class RequestResponsePoller:
         self._info_topic = TOPIC_INFO.format(id=device_id)
         self._pending: asyncio.Future[str] | None = None
         self._unsub_info = None
+        self._request_lock = asyncio.Lock()
 
     @property
     def device_id(self) -> str:
@@ -96,21 +111,28 @@ class RequestResponsePoller:
             self._pending.set_result(msg.payload)
 
     async def async_request(self, payload: str) -> str:
-        """Publish `payload` on `/cmnd` and return the next `/info` reply."""
-        self._pending = self.hass.loop.create_future()
-        await mqtt.async_publish(self.hass, self._cmnd_topic, payload)
+        """Publish `payload` on `/cmnd` and return the next `/info` reply.
 
-        try:
-            return await asyncio.wait_for(
-                self._pending, timeout=DEFAULT_MQTT_RESPONSE_TIMEOUT
-            )
-        except asyncio.TimeoutError as err:
-            raise UpdateFailed(
-                f"No response from {self._device_id} for {payload!r} "
-                f"within {DEFAULT_MQTT_RESPONSE_TIMEOUT}s"
-            ) from err
-        finally:
-            self._pending = None
+        Serialized via an internal lock: if another caller's request is
+        already in flight through this same poller, this call waits for
+        it to finish (success or timeout) before publishing its own, so
+        two concurrent callers never end up racing for the same reply.
+        """
+        async with self._request_lock:
+            self._pending = self.hass.loop.create_future()
+            await mqtt.async_publish(self.hass, self._cmnd_topic, payload)
+
+            try:
+                return await asyncio.wait_for(
+                    self._pending, timeout=DEFAULT_MQTT_RESPONSE_TIMEOUT
+                )
+            except asyncio.TimeoutError as err:
+                raise UpdateFailed(
+                    f"No response from {self._device_id} for {payload!r} "
+                    f"within {DEFAULT_MQTT_RESPONSE_TIMEOUT}s"
+                ) from err
+            finally:
+                self._pending = None
 
 
 class SSeriesEnergyCoordinator(DataUpdateCoordinator[dict[int, dict[str, float]]]):
@@ -150,6 +172,7 @@ class SSeriesEnergyCoordinator(DataUpdateCoordinator[dict[int, dict[str, float]]
         device_id: str,
         channels: int,
         poll_interval: int,
+        poller: RequestResponsePoller,
     ) -> None:
         super().__init__(
             hass,
@@ -158,13 +181,10 @@ class SSeriesEnergyCoordinator(DataUpdateCoordinator[dict[int, dict[str, float]]
             update_interval=timedelta(seconds=poll_interval),
         )
         self._channels = channels
-        self._poller = RequestResponsePoller(hass, device_id)
-
-    async def async_start(self) -> None:
-        await self._poller.async_start()
-
-    async def async_stop(self) -> None:
-        await self._poller.async_stop()
+        # Shared with SSeriesRelayStateRefresher for this same device --
+        # see RequestResponsePoller's docstring for why this must be one
+        # instance, not one per feature.
+        self._poller = poller
 
     async def _async_query_metric(self, command: str) -> float | None:
         try:
@@ -298,14 +318,41 @@ class SSeriesRelayStateRefresher:
     window (very plausible for a device that was *just* configured with
     MQTT settings in the vendor app), the fetch silently failed and the
     switch stayed wrong until the user manually reloaded the integration.
+
+    Takes an EXISTING `RequestResponsePoller` (shared with
+    `SSeriesEnergyCoordinator` for the same device) rather than creating
+    its own -- an earlier version of this class created a fresh poller on
+    every refresh, which meant two independent pollers could end up
+    subscribed to the same `<ID>/info` topic at once (this refresher's
+    gpiostatus query racing the energy coordinator's own query, both
+    Also caches the last successfully parsed states as `last_states`, and
+    exposes an `async_refresh_now()` you can await directly. This exists
+    because dispatching the "fresh states" signal (see
+    `relay_states_signal`) is only useful to switch entities that already
+    exist and are listening -- but this refresher is started, and its
+    retained `/connect` message processed, BEFORE the switch platform is
+    even forwarded (see `async_setup_entry`), so a fast device can have
+    its reply parsed and dispatched into the void before any switch
+    entity has registered a listener for it. `SSeriesRelaySwitch` reads
+    `last_states` directly at construction time as a fallback seed for
+    exactly this race, in addition to listening for the live signal for
+    any *later* refresh (e.g. a real reconnect after initial setup).
     """
 
-    def __init__(self, hass: HomeAssistant, device_id: str, channels: int) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        device_id: str,
+        channels: int,
+        poller: RequestResponsePoller,
+    ) -> None:
         self.hass = hass
         self._device_id = device_id
         self._channels = channels
+        self._poller = poller
         self._connect_topic = TOPIC_CONNECT.format(id=device_id)
         self._unsub_connect = None
+        self.last_states: dict[int, bool] = {}
 
     async def async_start(self) -> None:
         """Subscribe to `<ID>/connect`.
@@ -338,23 +385,23 @@ class SSeriesRelayStateRefresher:
     def _handle_connect(self, msg) -> None:
         if msg.payload.strip().lower() != "true":
             return
-        self.hass.async_create_task(self._async_refresh())
+        self.hass.async_create_task(self.async_refresh_now())
 
-    async def _async_refresh(self) -> None:
-        poller = RequestResponsePoller(self.hass, self._device_id)
-        await poller.async_start()
+    async def async_refresh_now(self) -> None:
+        """Query `gpiostatus=GET` once and, if parsed successfully, both
+        cache the result in `last_states` and dispatch it live to any
+        already-listening switch entities."""
         try:
-            response = await poller.async_request(CMD_GPIOSTATUS_GET)
+            response = await self._poller.async_request(CMD_GPIOSTATUS_GET)
         except UpdateFailed as err:
             _LOGGER.debug(
                 "gpiostatus=GET refresh failed for %s (%s)", self._device_id, err
             )
             return
-        finally:
-            await poller.async_stop()
 
         states = parse_gpio_status(response, self._channels)
         if states:
+            self.last_states = states
             async_dispatcher_send(
                 self.hass, relay_states_signal(self._device_id), states
             )
