@@ -287,6 +287,83 @@ Design notes:
 - **Model comes from the device ID**, not a hardcoded constant, via
   `utils.model_from_device_id`.
 
+## Troubleshooting
+
+### Enable Debug Logging
+
+If you're experiencing issues, enable debug logging to help diagnose the
+problem. Add this to your `configuration.yaml`:
+
+```yaml
+logger:
+  default: info
+  logs:
+    custom_components.fourbox_s_series: debug
+```
+
+After adding this, restart Home Assistant for the changes to take effect.
+
+### How to Get the FULL Debug Log
+
+The standard **Settings > System > Logs** page only shows warnings and errors
+by default. To get the complete debug log with all diagnostic information:
+
+#### Method 1: Download Full Log File (Recommended)
+
+1. Enable debug logging as shown above and restart Home Assistant
+2. Reproduce the issue you're experiencing
+3. Go to **Settings** > **System** > **Logs**
+4. Click the three-dot menu (⋮) in the top-right corner
+5. Select **Download full log**
+6. This downloads the complete `home-assistant.log` file with ALL debug entries
+
+#### Method 2: Access Log Files Directly
+
+Log files are stored in your Home Assistant config directory:
+
+- `config/home-assistant.log` - Current log file
+- `config/home-assistant.log.1` - Previous log (rotated)
+
+**Access methods by installation type:**
+
+| Installation | How to Access |
+|--------------|---------------|
+| Home Assistant OS | Use the **File Editor** or **SSH & Web Terminal** add-on |
+| Home Assistant Container | `docker exec -it homeassistant cat /config/home-assistant.log` |
+| Home Assistant Core | Direct file access in your config directory |
+
+#### Method 3: Filter Logs in Real-Time
+
+For live debugging, use SSH or Terminal to watch logs in real-time:
+
+```bash
+# Filter for fourbox_s_series entries only
+tail -f /config/home-assistant.log | grep fourbox_s_series
+
+# Or view the last 500 lines
+tail -n 500 /config/home-assistant.log | grep fourbox_s_series
+```
+
+#### Important Notes
+
+- The web UI logs page filters out debug-level messages by default
+- Debug entries are only visible in the downloaded/raw log file
+- After troubleshooting, consider removing the debug configuration to reduce
+  log file size
+- Log files rotate automatically; capture logs soon after reproducing an issue
+
+### Reporting Issues
+
+When [opening an issue][issues], please include:
+
+1. **Diagnostic file**: Download from Settings > Devices & Services >
+   4box S Series > three-dot menu (⋮) > Download diagnostics
+1. **Home Assistant version** (Settings > About)
+1. **Integration version** (Settings > Devices & Services > 4box S Series)
+1. **Debug logs** with timestamps showing the error
+1. **Network setup** (local network, VPN, firewall, etc.)
+1. **Steps to reproduce** the issue
+
 ## Development setup
 
 ### 1. Start Home Assistant + Mosquitto
