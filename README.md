@@ -354,7 +354,7 @@ tail -n 500 /config/home-assistant.log | grep fourbox_s_series
 
 ### Reporting Issues
 
-When [opening an issue][issues], please include:
+When opening an issue, please include:
 
 1. **Diagnostic file**: Download from Settings > Devices & Services >
    4box S Series > three-dot menu (⋮) > Download diagnostics
