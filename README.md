@@ -104,11 +104,21 @@ integration's **Configure** button without re-adding the device.
 ## Features by family
 
 ### Relay / socket
-- **Switch** per relay channel (on/off/toggle), state pushed live, with
-  its current state actively fetched at setup/reload so it's
-  correct immediately rather than only after the next physical toggle.
-- **Sensors**: power (W), current (A), voltage (V), temperature (°C) —
-  pushed spontaneously by the firmware.
+- **Switch** per relay channel (on/off/toggle), state kept correct by a
+  combination of live MQTT push and an active re-check (`gpiostatus=GET`)
+  every time the device announces itself online — including right at
+  setup and again on any future reconnect, not just once.
+- **Power / current sensors**: combine the firmware's spontaneous MQTT
+  push with periodic active polling (`power=RELAY<n>`, `current=RELAY<n>`,
+  piggybacked on the same poll cycle as the energy counter below) — the
+  poll acts as a floor so these are never stuck at "unknown" for longer
+  than one poll interval, even if the device stays quiet on the push
+  side, while still taking whichever update (push or poll) is freshest.
+- **Voltage / temperature sensors**: push-only (`/stat/voltage`,
+  `/stat/temperature`), since the vendor guide documents no read command
+  for either — the firmware pushes these roughly every 15 minutes on its
+  own, so expect them to take a while to populate on a fresh device; this
+  is a firmware limitation this integration has no way to bypass.
 - **Energy sensor** compatible with the HA **Energy dashboard**
   (`device_class: energy`, `state_class: total_increasing`), obtained by
   periodically polling `energyActive=RELAY<n>` (the firmware doesn't push
@@ -117,7 +127,17 @@ integration's **Configure** button without re-adding the device.
 - Single-channel and two-channel (M053B dual-light) devices both supported.
 - **Optional, experimental**: indicator LED RGB value sensors (read-only
   diagnostic sensors), if you enable "Device has an indicator LED" at
-  setup.
+  setup. No write command exists for it — six plausible syntaxes were
+  tried against real hardware (`led=`, `led1=`, `ledColor=`,
+  `led1_r=&led1_g=&led1_b=`, `LED1_R=&LED1_G=&LED1_B=`, and the
+  `KEY:value;` form matching `gpiostatus=GET`'s own response format),
+  all returning `(null)` with no change to the physical LED. Given the
+  LED's observed behavior (color shifts on its own around relay state
+  changes, e.g. red/orange right after a relay turns off), it looks more
+  like an internal status indicator than something meant to be
+  user-controllable, so this is treated as read-only rather than an open
+  question — see the note in `sensor.py`'s `SSeriesLedChannelSensor` if
+  you want to try further.
 
 ### Motorized shutter (cover)
 - Full open/close/stop plus **absolute position** (`motor=MOVE&perc=`),
