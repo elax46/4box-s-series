@@ -99,7 +99,19 @@ class TestParseMotorStat:
         stat = parse_motor_stat("00000011=>50")
         assert stat.position == 50.0
         assert stat.power_w is None
-        assert stat.motor_status is None
+
+    def test_non_numeric_position_field_falls_back_to_none(self):
+        stat = parse_motor_stat("00000011=>notanumber=>0.0=>0.0=>STOPPED")
+        assert stat.position is None
+        # Other fields must still parse correctly independently.
+        assert stat.power_w == 0.0
+        assert stat.motor_status == "STOPPED"
+
+    def test_non_numeric_power_field_falls_back_to_none(self):
+        stat = parse_motor_stat("00000011=>50=>notanumber=>0.0=>STOPPED")
+        assert stat.position == 50.0
+        assert stat.power_w is None
+        assert stat.motor_status == "STOPPED"
 
 
 class TestParseGpioStatus:
