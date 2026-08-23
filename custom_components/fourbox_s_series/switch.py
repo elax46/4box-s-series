@@ -13,6 +13,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, MANUFACTURER, TOPIC_CMND, TOPIC_CONNECT, TOPIC_RELAY_STATE
+from .availability import DebouncedAvailability
 from .coordinator import SSeriesRelayStateRefresher, relay_states_signal
 from .utils import build_action_payload, model_from_device_id
 
@@ -95,8 +96,15 @@ class SSeriesRelaySwitch(SwitchEntity):
 
         @callback
         def connect_received(msg) -> None:
-            self._attr_available = msg.payload.strip().lower() == "true"
+            debouncer.handle_message(msg.payload)
+
+        @callback
+        def _set_available(is_available: bool) -> None:
+            self._attr_available = is_available
             self.async_write_ha_state()
+
+        debouncer = DebouncedAvailability(self.hass, _set_available)
+        self.async_on_remove(debouncer.cancel)
 
         @callback
         def relay_states_updated(states: dict[int, bool]) -> None:

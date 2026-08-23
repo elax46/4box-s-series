@@ -319,11 +319,22 @@ class SSeriesLedChannelSensor(SensorEntity):
 
     This is a reverse-engineered, undocumented feature (see const.py's
     CONF_HAS_LED docstring): the vendor guide never mentions an LED, and
-    no write command has been found to control it -- only observed
-    values via `gpiostatus=GET`'s LED1_R/G/B fields and the spontaneous
-    `/stat/led/1/{r,g,b}` pushes this class subscribes to. Because there's
-    no way to control it, this is a plain diagnostic sensor rather than a
-    `light` entity.
+    only observed values are known -- via `gpiostatus=GET`'s
+    LED1_R/G/B fields and the spontaneous `/stat/led/1/{r,g,b}` pushes
+    this class subscribes to.
+
+    Six plausible write-command syntaxes were tried against real
+    hardware (`led=R,G,B`, `led1=R,G,B`, `ledColor=RRGGBB`,
+    `led1_r=&led1_g=&led1_b=`, `LED1_R=&LED1_G=&LED1_B=`, and the
+    `KEY:value;` form matching the read response's own syntax), all
+    returning `(null)` on `/info` with no change to the physical LED or
+    any `/stat/led/1/...` push. Combined with the LED changing color on
+    its own around relay state transitions (e.g. shifting to a red/
+    orange tone right after the relay turns off), this looks like an
+    internal status indicator rather than something meant to be
+    user-controllable -- so this stays a plain diagnostic sensor, not a
+    `light` entity, and is not expected to gain write support unless
+    someone finds a syntax outside what's already been tried.
     """
 
     _attr_should_poll = False

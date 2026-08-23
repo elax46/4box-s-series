@@ -46,6 +46,7 @@ from .const import (
     motor_tilt_payload,
 )
 from .utils import model_from_device_id, parse_motor_stat
+from .availability import DebouncedAvailability
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -138,8 +139,15 @@ class SSeriesMotorCover(CoverEntity):
 
         @callback
         def connect_received(msg) -> None:
-            self._attr_available = msg.payload.strip().lower() == "true"
+            debouncer.handle_message(msg.payload)
+
+        @callback
+        def _set_available(is_available: bool) -> None:
+            self._attr_available = is_available
             self.async_write_ha_state()
+
+        debouncer = DebouncedAvailability(self.hass, _set_available)
+        self.async_on_remove(debouncer.cancel)
 
         self.async_on_remove(
             await mqtt.async_subscribe(self.hass, self._stat_topic, stat_received)

@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
@@ -29,6 +30,7 @@ from homeassistant.components import mqtt
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -52,6 +54,12 @@ _NUMBER_RE = re.compile(r"-?\d+(\.\d+)?")
 # Small delay between two sequential queries on the same device so their
 # /info responses cannot be confused with one another.
 _INTER_QUERY_DELAY = 0.5
+
+# How long to wait after a device announces itself online before actually
+# querying it (see SSeriesRelayStateRefresher). Chosen as a conservative
+# default giving the device's own firmware time to finish whatever it's
+# doing right after a reconnect, before we add MQTT traffic on top of it.
+DEFAULT_RECONNECT_GRACE_SECONDS = 3.0
 
 
 def _extract_number(response: str) -> float | None:
@@ -325,6 +333,9 @@ class SSeriesRelayStateRefresher:
     every refresh, which meant two independent pollers could end up
     subscribed to the same `<ID>/info` topic at once (this refresher's
     gpiostatus query racing the energy coordinator's own query, both
+    firing around the same time at startup) and steal each other's
+    replies. See `RequestResponsePoller`'s docstring.
+
     Also caches the last successfully parsed states as `last_states`, and
     exposes an `async_refresh_now()` you can await directly. This exists
     because dispatching the "fresh states" signal (see
@@ -337,6 +348,19 @@ class SSeriesRelayStateRefresher:
     `last_states` directly at construction time as a fallback seed for
     exactly this race, in addition to listening for the live signal for
     any *later* refresh (e.g. a real reconnect after initial setup).
+
+    Waits `reconnect_grace_seconds` after seeing "true" before actually
+    querying, instead of firing the instant the birth message arrives.
+    Real hardware observed in production (a P40S) exhibited brief,
+    spurious relay glitches (a real physical on/off/on, not just an
+    availability flap) that correlated with reconnect events, with no
+    code path in this integration ever constructing an `action=` command
+    outside a direct user-initiated turn_on/turn_off/toggle -- pointing
+    at a device-firmware-level sensitivity to being queried while it's
+    still completing its own boot/reconnect sequence, rather than a bug
+    in the command this refresher sends (`gpiostatus=GET`, a documented
+    read-only command). This grace period is a defensive measure against
+    that, not a confirmed root-cause fix.
     """
 
     def __init__(
@@ -345,13 +369,16 @@ class SSeriesRelayStateRefresher:
         device_id: str,
         channels: int,
         poller: RequestResponsePoller,
+        reconnect_grace_seconds: float = DEFAULT_RECONNECT_GRACE_SECONDS,
     ) -> None:
         self.hass = hass
         self._device_id = device_id
         self._channels = channels
         self._poller = poller
         self._connect_topic = TOPIC_CONNECT.format(id=device_id)
+        self._reconnect_grace_seconds = reconnect_grace_seconds
         self._unsub_connect = None
+        self._cancel_pending_refresh: Callable[[], None] | None = None
         self.last_states: dict[int, bool] = {}
 
     async def async_start(self) -> None:
@@ -377,6 +404,9 @@ class SSeriesRelayStateRefresher:
             )
 
     async def async_stop(self) -> None:
+        if self._cancel_pending_refresh is not None:
+            self._cancel_pending_refresh()
+            self._cancel_pending_refresh = None
         if self._unsub_connect is not None:
             self._unsub_connect()
             self._unsub_connect = None
@@ -385,7 +415,17 @@ class SSeriesRelayStateRefresher:
     def _handle_connect(self, msg) -> None:
         if msg.payload.strip().lower() != "true":
             return
-        self.hass.async_create_task(self.async_refresh_now())
+        if self._cancel_pending_refresh is not None:
+            self._cancel_pending_refresh()
+
+        @callback
+        def _fire_refresh(_now) -> None:
+            self._cancel_pending_refresh = None
+            self.hass.async_create_task(self.async_refresh_now())
+
+        self._cancel_pending_refresh = async_call_later(
+            self.hass, self._reconnect_grace_seconds, _fire_refresh
+        )
 
     async def async_refresh_now(self) -> None:
         """Query `gpiostatus=GET` once and, if parsed successfully, both

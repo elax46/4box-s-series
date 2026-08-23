@@ -10,21 +10,25 @@ Requires `requirements-test.txt` to be installed. Run with:
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_mqtt_message,
+    async_fire_time_changed,
 )
 
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.util import dt as dt_util
 
 from custom_components.fourbox_s_series import async_unload_entry
 from custom_components.fourbox_s_series.coordinator import (
+    DEFAULT_RECONNECT_GRACE_SECONDS,
     RequestResponsePoller,
     SSeriesRelayStateRefresher,
 )
@@ -240,8 +244,15 @@ async def test_relay_state_refreshes_when_device_connects_after_setup(
         assert state.state == "unavailable"
 
         # The device finishes connecting to the broker some time later
-        # and fires its retained birth message.
+        # and fires its retained birth message. The refresher waits
+        # DEFAULT_RECONNECT_GRACE_SECONDS before actually querying (see
+        # SSeriesRelayStateRefresher), so advance time past that window.
         async_fire_mqtt_message(hass, "M048D-901506BADF40/connect", "true")
+        await hass.async_block_till_done()
+        async_fire_time_changed(
+            hass,
+            dt_util.utcnow() + timedelta(seconds=DEFAULT_RECONNECT_GRACE_SECONDS + 1),
+        )
         await hass.async_block_till_done()
 
     # No reload was triggered anywhere above -- the state must now be
@@ -302,8 +313,15 @@ async def test_concurrent_refresher_and_energy_poll_do_not_cross_talk(
         # the real broker it's already retained before setup even
         # starts, but the test broker starts empty, so fire it
         # explicitly here to trigger the refresher concurrently with the
-        # energy coordinator's own poll (already in flight above).
+        # energy coordinator's own poll (already in flight above). The
+        # refresher waits DEFAULT_RECONNECT_GRACE_SECONDS before actually
+        # querying, so advance time past that window too.
         async_fire_mqtt_message(hass, "M048D-901506BADF40/connect", "true")
+        await hass.async_block_till_done()
+        async_fire_time_changed(
+            hass,
+            dt_util.utcnow() + timedelta(seconds=DEFAULT_RECONNECT_GRACE_SECONDS + 1),
+        )
         await hass.async_block_till_done()
 
     # All four values must have landed on the RIGHT entity -- if
