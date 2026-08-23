@@ -32,6 +32,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .availability import DebouncedAvailability
 from .const import (
     DOMAIN,
     MANUFACTURER,
@@ -46,7 +47,6 @@ from .const import (
     motor_tilt_payload,
 )
 from .utils import model_from_device_id, parse_motor_stat
-from .availability import DebouncedAvailability
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -12,8 +12,8 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, MANUFACTURER, TOPIC_CMND, TOPIC_CONNECT, TOPIC_RELAY_STATE
 from .availability import DebouncedAvailability
+from .const import DOMAIN, MANUFACTURER, TOPIC_CMND, TOPIC_CONNECT, TOPIC_RELAY_STATE
 from .coordinator import SSeriesRelayStateRefresher, relay_states_signal
 from .utils import build_action_payload, model_from_device_id
 
