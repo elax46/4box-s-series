@@ -104,11 +104,21 @@ integration's **Configure** button without re-adding the device.
 ## Features by family
 
 ### Relay / socket
-- **Switch** per relay channel (on/off/toggle), state pushed live, with
-  its current state actively fetched at setup/reload so it's
-  correct immediately rather than only after the next physical toggle.
-- **Sensors**: power (W), current (A), voltage (V), temperature (°C) —
-  pushed spontaneously by the firmware.
+- **Switch** per relay channel (on/off/toggle), state kept correct by a
+  combination of live MQTT push and an active re-check (`gpiostatus=GET`)
+  every time the device announces itself online — including right at
+  setup and again on any future reconnect, not just once.
+- **Power / current sensors**: combine the firmware's spontaneous MQTT
+  push with periodic active polling (`power=RELAY<n>`, `current=RELAY<n>`,
+  piggybacked on the same poll cycle as the energy counter below) — the
+  poll acts as a floor so these are never stuck at "unknown" for longer
+  than one poll interval, even if the device stays quiet on the push
+  side, while still taking whichever update (push or poll) is freshest.
+- **Voltage / temperature sensors**: push-only (`/stat/voltage`,
+  `/stat/temperature`), since the vendor guide documents no read command
+  for either — the firmware pushes these roughly every 15 minutes on its
+  own, so expect them to take a while to populate on a fresh device; this
+  is a firmware limitation this integration has no way to bypass.
 - **Energy sensor** compatible with the HA **Energy dashboard**
   (`device_class: energy`, `state_class: total_increasing`), obtained by
   periodically polling `energyActive=RELAY<n>` (the firmware doesn't push
@@ -117,7 +127,17 @@ integration's **Configure** button without re-adding the device.
 - Single-channel and two-channel (M053B dual-light) devices both supported.
 - **Optional, experimental**: indicator LED RGB value sensors (read-only
   diagnostic sensors), if you enable "Device has an indicator LED" at
-  setup.
+  setup. No write command exists for it — six plausible syntaxes were
+  tried against real hardware (`led=`, `led1=`, `ledColor=`,
+  `led1_r=&led1_g=&led1_b=`, `LED1_R=&LED1_G=&LED1_B=`, and the
+  `KEY:value;` form matching `gpiostatus=GET`'s own response format),
+  all returning `(null)` with no change to the physical LED. Given the
+  LED's observed behavior (color shifts on its own around relay state
+  changes, e.g. red/orange right after a relay turns off), it looks more
+  like an internal status indicator than something meant to be
+  user-controllable, so this is treated as read-only rather than an open
+  question — see the note in `sensor.py`'s `SSeriesLedChannelSensor` if
+  you want to try further.
 
 ### Motorized shutter (cover)
 - Full open/close/stop plus **absolute position** (`motor=MOVE&perc=`),
@@ -266,6 +286,83 @@ Design notes:
   field, not the status string) are always accurate regardless.
 - **Model comes from the device ID**, not a hardcoded constant, via
   `utils.model_from_device_id`.
+
+## Troubleshooting
+
+### Enable Debug Logging
+
+If you're experiencing issues, enable debug logging to help diagnose the
+problem. Add this to your `configuration.yaml`:
+
+```yaml
+logger:
+  default: info
+  logs:
+    custom_components.fourbox_s_series: debug
+```
+
+After adding this, restart Home Assistant for the changes to take effect.
+
+### How to Get the FULL Debug Log
+
+The standard **Settings > System > Logs** page only shows warnings and errors
+by default. To get the complete debug log with all diagnostic information:
+
+#### Method 1: Download Full Log File (Recommended)
+
+1. Enable debug logging as shown above and restart Home Assistant
+2. Reproduce the issue you're experiencing
+3. Go to **Settings** > **System** > **Logs**
+4. Click the three-dot menu (⋮) in the top-right corner
+5. Select **Download full log**
+6. This downloads the complete `home-assistant.log` file with ALL debug entries
+
+#### Method 2: Access Log Files Directly
+
+Log files are stored in your Home Assistant config directory:
+
+- `config/home-assistant.log` - Current log file
+- `config/home-assistant.log.1` - Previous log (rotated)
+
+**Access methods by installation type:**
+
+| Installation | How to Access |
+|--------------|---------------|
+| Home Assistant OS | Use the **File Editor** or **SSH & Web Terminal** add-on |
+| Home Assistant Container | `docker exec -it homeassistant cat /config/home-assistant.log` |
+| Home Assistant Core | Direct file access in your config directory |
+
+#### Method 3: Filter Logs in Real-Time
+
+For live debugging, use SSH or Terminal to watch logs in real-time:
+
+```bash
+# Filter for fourbox_s_series entries only
+tail -f /config/home-assistant.log | grep fourbox_s_series
+
+# Or view the last 500 lines
+tail -n 500 /config/home-assistant.log | grep fourbox_s_series
+```
+
+#### Important Notes
+
+- The web UI logs page filters out debug-level messages by default
+- Debug entries are only visible in the downloaded/raw log file
+- After troubleshooting, consider removing the debug configuration to reduce
+  log file size
+- Log files rotate automatically; capture logs soon after reproducing an issue
+
+### Reporting Issues
+
+When opening an issue, please include:
+
+1. **Diagnostic file**: Download from Settings > Devices & Services >
+   4box S Series > three-dot menu (⋮) > Download diagnostics
+1. **Home Assistant version** (Settings > About)
+1. **Integration version** (Settings > Devices & Services > 4box S Series)
+1. **Debug logs** with timestamps showing the error
+1. **Network setup** (local network, VPN, firewall, etc.)
+1. **Steps to reproduce** the issue
 
 ## Development setup
 
