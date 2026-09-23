@@ -9,6 +9,6 @@
 # whatever combination is actually installable for your Python version.
 pytest>=8.0
 pytest-asyncio>=0.24
-pytest-homeassistant-custom-component>=0.13
+pytest-homeassistant-custom-component>=0.13.366
 pytest-cov
 pytest-homeassistant-custom-component
