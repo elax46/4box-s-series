@@ -70,7 +70,7 @@ integration to subscribe to.
 
 1. HACS → Integrations → the "⋮" menu → *Custom repositories* → add this
    repository URL with category *Integration*.
-2. Search for "4box S Series (MQTT)" and install.
+2. Search for "4box S Series" and install.
 3. Restart Home Assistant.
 
 ### Manual
